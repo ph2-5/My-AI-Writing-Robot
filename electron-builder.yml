@@ -1,0 +1,47 @@
+appId: com.aiwritingrobot.app
+productName: AI写字机器人
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/**/*
+  - main.py
+  - config.py
+  - requirements.txt
+  - analyzers/**/*
+  - effects/**/*
+  - fonts/**/*
+  - layout/**/*
+  - output/**/*
+  - parsers/**/*
+  - package.json
+extraResources:
+  - from: ./
+    to: .
+    filter:
+      - main.py
+      - config.py
+      - requirements.txt
+      - analyzers/**
+      - effects/**
+      - fonts/**
+      - layout/**
+      - output/**
+      - parsers/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AI写字机器人
+nodeGypRebuild: false
+npmRebuild: false
+buildDependenciesFromSource: false

@@ -1,0 +1,123 @@
+{
+  "name": "ai-writing-robot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI写字机器人 - 智能作业生成与机器人控制",
+  "author": "AI Writing Robot Team",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "client:dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "check": "tsc --noEmit",
+    "electron:dev": "concurrently \"npm run client:dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.3.0",
+    "tailwind-merge": "^3.0.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@types/node": "^22.15.30",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "babel-plugin-react-dev-locator": "^1.0.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.7.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.30.1",
+    "vite": "^6.3.5",
+    "vite-tsconfig-paths": "^5.1.4",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.aiwritingrobot.app",
+    "productName": "AI写字机器人",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "main.py",
+      "config.py",
+      "requirements.txt",
+      "analyzers/**/*",
+      "effects/**/*",
+      "fonts/**/*",
+      "layout/**/*",
+      "output/**/*",
+      "parsers/**/*",
+      "tests/**/*",
+      "uploads",
+      "outputs",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "./",
+        "to": ".",
+        "filter": [
+          "main.py",
+          "config.py",
+          "logging_utils.py",
+          "requirements.txt",
+          "analyzers/**",
+          "effects/**",
+          "fonts/**",
+          "layout/**",
+          "output/**",
+          "parsers/**",
+          "scripts/**"
+        ]
+      },
+      {
+        "from": "./启动AI写字机器人.bat",
+        "to": "启动AI写字机器人.bat"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/favicon.svg",
+      "artifactName": "AI写字机器人-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/favicon.svg",
+      "uninstallerIcon": "public/favicon.svg",
+      "installerHeaderIcon": "public/favicon.svg",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI写字机器人"
+    }
+  }
+}

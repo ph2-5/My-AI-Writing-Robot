@@ -1,0 +1,62 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+dist-electron
+release
+
+# Electron builder cache
+.cache
+*.local
+
+# Vite
+.vite
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.eggs
+*.egg
+.venv
+venv
+env
+
+# User data
+uploads
+outputs
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Demo / temp
+demo_output.svg
