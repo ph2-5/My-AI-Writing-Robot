@@ -12,9 +12,11 @@ import shutil
 import time
 import ipaddress
 import threading
+import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable
+from functools import wraps
 
 for stream_name in ('stdout', 'stderr'):
     stream = getattr(sys, stream_name)
@@ -35,10 +37,20 @@ import main as core
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'outputs')
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'images')
 MAX_BODY_SIZE = 50 * 1024 * 1024
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
+
+class APIError(Exception):
+    """API错误基类"""
+    def __init__(self, message: str, status: int = 400):
+        self.message = message
+        self.status = status
+        super().__init__(message)
 
 
 def api_result(success: bool, error: Optional[str] = None, http_status: int = 200, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -48,6 +60,14 @@ def api_result(success: bool, error: Optional[str] = None, http_status: int = 20
     if data is not None:
         result['data'] = data
     return result
+
+
+def api_error(message: str, status: int = 400) -> Dict[str, Any]:
+    return api_result(False, error=message, http_status=status)
+
+
+def api_success(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return api_result(True, http_status=200, data=data)
 
 
 class RateLimiter:
@@ -184,20 +204,20 @@ def call_llm(api_config: Dict[str, Any], messages: list, stream: bool = False, r
 
 
 def _handle_health(handler):
-    handler._send_json(api_result(True, data={'message': 'ok'}))
+    handler._send_json(api_success({'message': 'ok', 'timestamp': time.time()}))
 
 
 def _handle_demo(handler):
     try:
         result = core.demo()
-        handler._send_json(api_result(True, data={
+        handler._send_json(api_success({
             'svgContent': result.get('svgContent', ''),
             'strokeCount': result.get('strokeCount', 0),
             'estimatedTime': result.get('estimatedTime', 0),
             'log': result.get('log', ''),
         }))
     except Exception as e:
-        handler._send_json(api_result(False, error=str(e), http_status=500), 500)
+        handler._send_json(api_error(str(e), 500), 500)
 
 
 def _handle_download(handler):
@@ -206,13 +226,13 @@ def _handle_download(handler):
     file_id = path.split('/')[-1]
 
     if not validate_file_id(file_id):
-        handler._send_json(api_result(False, error='Invalid file ID', http_status=400), 400)
+        handler._send_json(api_error('Invalid file ID', 400), 400)
         return
 
     files = os.listdir(OUTPUTS_DIR)
     matched = [f for f in files if f.startswith(file_id) and '-config' not in f]
     if not matched:
-        handler._send_json(api_result(False, error='File not found', http_status=404), 404)
+        handler._send_json(api_error('File not found', 404), 404)
         return
     file_path = os.path.join(OUTPUTS_DIR, matched[0])
     handler.send_response(200)
@@ -223,16 +243,56 @@ def _handle_download(handler):
         shutil.copyfileobj(f, handler.wfile)
 
 
+def _parse_multipart(body: bytes, boundary: str) -> list:
+    """解析multipart/form-data，返回 [(field_name, filename, content), ...]"""
+    parts = []
+    boundary_bytes = boundary.encode('utf-8')
+    delimiter = b'--' + boundary_bytes
+    segments = body.split(delimiter)
+    
+    for segment in segments:
+        if segment in (b'', b'--\r\n', b'--'):
+            continue
+        if segment.startswith(b'\r\n'):
+            segment = segment[2:]
+        
+        header_end = segment.find(b'\r\n\r\n')
+        if header_end == -1:
+            continue
+            
+        header_str = segment[:header_end].decode('utf-8', errors='replace')
+        file_content = segment[header_end + 4:]
+        if file_content.endswith(b'\r\n'):
+            file_content = file_content[:-2]
+        
+        # 解析字段名和文件名
+        field_name = None
+        filename = None
+        for h_line in header_str.split('\r\n'):
+            if 'Content-Disposition' in h_line:
+                for segment_part in h_line.split(';'):
+                    segment_part = segment_part.strip()
+                    if segment_part.startswith('name='):
+                        field_name = segment_part[len('name='):].strip('"').strip("'")
+                    elif segment_part.startswith('filename='):
+                        filename = segment_part[len('filename='):].strip('"').strip("'")
+        
+        if field_name:
+            parts.append((field_name, filename, file_content))
+    
+    return parts
+
+
 def _handle_upload(handler):
     try:
         content_type = handler.headers.get('Content-Type', '')
         if not content_type.startswith('multipart/form-data'):
-            handler._send_json(api_result(False, error='Invalid content type', http_status=400), 400)
+            handler._send_json(api_error('Invalid content type', 400), 400)
             return
 
         content_length = int(handler.headers.get('Content-Length', 0))
         if content_length > MAX_BODY_SIZE:
-            handler._send_json(api_result(False, error='Request body too large', http_status=413), 413)
+            handler._send_json(api_error('Request body too large', 413), 413)
             return
 
         boundary = None
@@ -243,43 +303,37 @@ def _handle_upload(handler):
                 break
 
         if not boundary:
-            handler._send_json(api_result(False, error='Missing boundary', http_status=400), 400)
+            handler._send_json(api_error('Missing boundary', 400), 400)
             return
 
         body = handler.rfile.read(content_length)
-
-        boundary_bytes = boundary.encode('utf-8')
-        delimiter = b'--' + boundary_bytes
-        parts = body.split(delimiter)
+        parts = _parse_multipart(body, boundary)
 
         file_data = None
         original_name = 'unknown.docx'
+        attached_images = []
 
-        for part in parts:
-            if part in (b'', b'--\r\n', b'--'):
-                continue
-            if part.startswith(b'\r\n'):
-                part = part[2:]
-            header_end = part.find(b'\r\n\r\n')
-            if header_end == -1:
-                continue
-            header_str = part[:header_end].decode('utf-8', errors='replace')
-            file_content = part[header_end + 4:]
-            if file_content.endswith(b'\r\n'):
-                file_content = file_content[:-2]
-
-            if 'name="file"' in header_str or "name='file'" in header_str:
-                file_data = file_content
-                for h_line in header_str.split('\r\n'):
-                    if 'filename=' in h_line:
-                        for segment in h_line.split(';'):
-                            segment = segment.strip()
-                            if segment.startswith('filename='):
-                                original_name = segment[len('filename='):].strip('"').strip("'")
-                                break
+        for field_name, filename, content in parts:
+            if field_name == 'file':
+                file_data = content
+                if filename:
+                    original_name = filename
+            elif field_name.startswith('image_'):
+                # 保存附加图片
+                img_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+                img_ext = os.path.splitext(filename or '.png')[1] or '.png'
+                img_name = f"{img_id}{img_ext}"
+                img_path = os.path.join(IMAGES_DIR, img_name)
+                with open(img_path, 'wb') as f:
+                    f.write(content)
+                attached_images.append({
+                    'id': img_id,
+                    'name': filename or img_name,
+                    'path': img_path,
+                })
 
         if file_data is None:
-            handler._send_json(api_result(False, error='No file uploaded', http_status=400), 400)
+            handler._send_json(api_error('No file uploaded', 400), 400)
             return
 
         ext = os.path.splitext(original_name)[1] or '.docx'
@@ -292,28 +346,30 @@ def _handle_upload(handler):
 
         try:
             result = core.run_parse_only(file_path)
-            handler._send_json(api_result(True, data={
+            handler._send_json(api_success({
                 'fileId': file_id,
                 'filePath': file_path,
+                'attachedImages': attached_images,
                 **result,
             }))
         except Exception as e:
-            handler._send_json(api_result(True, data={
+            handler._send_json(api_success({
                 'fileId': file_id,
                 'filePath': file_path,
+                'attachedImages': attached_images,
                 'questions': [],
                 'questionCount': 0,
                 'warning': str(e),
             }))
     except Exception as e:
-        handler._send_json(api_result(False, error=str(e), http_status=500), 500)
+        handler._send_json(api_error(str(e), 500), 500)
 
 
 def _handle_generate(handler):
     try:
         content_length = int(handler.headers.get('Content-Length', 0))
         if content_length > MAX_BODY_SIZE:
-            handler._send_json(api_result(False, error='Request body too large', http_status=413), 413)
+            handler._send_json(api_error('Request body too large', 413), 413)
             return
 
         body = handler.rfile.read(content_length).decode('utf-8')
@@ -323,25 +379,26 @@ def _handle_generate(handler):
         fmt = data.get('format', 'kuixang')
         seed = data.get('seed')
         config_obj = data.get('config')
+        image_ids = data.get('imageIds', [])
 
         if not file_id:
-            handler._send_json(api_result(False, error='fileId is required', http_status=400), 400)
+            handler._send_json(api_error('fileId is required', 400), 400)
             return
 
         if not validate_file_id(file_id):
-            handler._send_json(api_result(False, error='Invalid file ID', http_status=400), 400)
+            handler._send_json(api_error('Invalid file ID', 400), 400)
             return
 
         if config_obj:
             config_error = validate_config(config_obj)
             if config_error:
-                handler._send_json(api_result(False, error=config_error, http_status=400), 400)
+                handler._send_json(api_error(config_error, 400), 400)
                 return
 
         uploaded_files = os.listdir(UPLOADS_DIR)
         matched = [f for f in uploaded_files if f.startswith(file_id)]
         if not matched:
-            handler._send_json(api_result(False, error='File not found', http_status=404), 404)
+            handler._send_json(api_error('File not found', 404), 404)
             return
 
         input_path = os.path.join(UPLOADS_DIR, matched[0])
@@ -360,7 +417,7 @@ def _handle_generate(handler):
         with open(output_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
 
-        handler._send_json(api_result(True, data={
+        handler._send_json(api_success({
             'fileId': output_id,
             'svgContent': svg_content,
             'strokeCount': result.get('strokeCount', 0),
@@ -368,18 +425,18 @@ def _handle_generate(handler):
             'questions': result.get('questions', []),
             'log': result.get('log', ''),
             'outputPath': f'/api/homework/download/{output_id}',
+            'imageAnalysis': result.get('imageAnalysis', {}),
         }))
     except Exception as e:
-        import traceback
         traceback.print_exc()
-        handler._send_json(api_result(False, error=str(e), http_status=500), 500)
+        handler._send_json(api_error(str(e), 500), 500)
 
 
 def _handle_preview(handler):
     try:
         content_length = int(handler.headers.get('Content-Length', 0))
         if content_length > MAX_BODY_SIZE:
-            handler._send_json(api_result(False, error='Request body too large', http_status=413), 413)
+            handler._send_json(api_error('Request body too large', 413), 413)
             return
 
         body = handler.rfile.read(content_length).decode('utf-8')
@@ -390,30 +447,30 @@ def _handle_preview(handler):
         stream = data.get('stream', False)
 
         if not file_id:
-            handler._send_json(api_result(False, error='fileId is required', http_status=400), 400)
+            handler._send_json(api_error('fileId is required', 400), 400)
             return
 
         if not validate_file_id(file_id):
-            handler._send_json(api_result(False, error='Invalid file ID', http_status=400), 400)
+            handler._send_json(api_error('Invalid file ID', 400), 400)
             return
 
         if config_obj:
             config_error = validate_config(config_obj)
             if config_error:
-                handler._send_json(api_result(False, error=config_error, http_status=400), 400)
+                handler._send_json(api_error(config_error, 400), 400)
                 return
 
         uploaded_files = os.listdir(UPLOADS_DIR)
         matched = [f for f in uploaded_files if f.startswith(file_id)]
         if not matched:
-            handler._send_json(api_result(False, error='File not found', http_status=404), 404)
+            handler._send_json(api_error('File not found', 404), 404)
             return
 
         input_path = os.path.join(UPLOADS_DIR, matched[0])
 
         if not stream:
             result = core.run_preview(input_path, config_dict=config_obj)
-            handler._send_json(api_result(True, data={
+            handler._send_json(api_success({
                 'previewSvg': result.get('previewSvg', ''),
                 'questionPlans': result.get('questionPlans', []),
                 'pageCount': result.get('pageCount', 1),
@@ -457,7 +514,7 @@ def _handle_preview(handler):
                     handler.wfile.write(f"event: progress\ndata: {data_str}\n\n".encode('utf-8'))
                     handler.wfile.flush()
                 elif event_type == 'result':
-                    result_data = json.dumps(api_result(True, data={
+                    result_data = json.dumps(api_success({
                         'previewSvg': event_data.get('previewSvg', ''),
                         'questionPlans': event_data.get('questionPlans', []),
                         'pageCount': event_data.get('pageCount', 1),
@@ -467,17 +524,16 @@ def _handle_preview(handler):
                     handler.wfile.write(f"event: result\ndata: {result_data}\n\n".encode('utf-8'))
                     handler.wfile.flush()
                 elif event_type == 'error':
-                    error_data = json.dumps(api_result(False, error=event_data, http_status=500), ensure_ascii=False)
+                    error_data = json.dumps(api_error(event_data, 500), ensure_ascii=False)
                     handler.wfile.write(f"event: result\ndata: {error_data}\n\n".encode('utf-8'))
                     handler.wfile.flush()
             except queue.Empty:
                 continue
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         try:
-            handler._send_json(api_result(False, error=str(e), http_status=500), 500)
+            handler._send_json(api_error(str(e), 500), 500)
         except:
             pass
 
@@ -486,7 +542,7 @@ def _handle_llm_call(handler):
     try:
         content_length = int(handler.headers.get('Content-Length', 0))
         if content_length > MAX_BODY_SIZE:
-            handler._send_json(api_result(False, error='Request body too large', http_status=413), 413)
+            handler._send_json(api_error('Request body too large', 413), 413)
             return
 
         body = handler.rfile.read(content_length).decode('utf-8')
@@ -498,7 +554,7 @@ def _handle_llm_call(handler):
         response_format = data.get('response_format')
 
         if not messages:
-            handler._send_json(api_result(False, error='messages is required', http_status=400), 400)
+            handler._send_json(api_error('messages is required', 400), 400)
             return
 
         result = call_llm(api_config, messages, stream=stream, response_format=response_format)
@@ -524,11 +580,89 @@ def _handle_llm_call(handler):
         content = result['data']['content']
         try:
             parsed = json.loads(content)
-            handler._send_json(api_result(True, data={'content': parsed}))
+            handler._send_json(api_success({'content': parsed}))
         except (json.JSONDecodeError, TypeError):
-            handler._send_json(api_result(True, data={'content': content}))
+            handler._send_json(api_success({'content': content}))
     except Exception as e:
-        handler._send_json(api_result(False, error=str(e), http_status=500), 500)
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+# 新增：图片分析接口
+def _handle_image_analyze(handler):
+    """分析题目图片，返回图形参数"""
+    try:
+        content_type = handler.headers.get('Content-Type', '')
+        if not content_type.startswith('multipart/form-data'):
+            handler._send_json(api_error('Invalid content type', 400), 400)
+            return
+
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        boundary = None
+        for part in content_type.split(';'):
+            part = part.strip()
+            if part.startswith('boundary='):
+                boundary = part[len('boundary='):]
+                break
+
+        if not boundary:
+            handler._send_json(api_error('Missing boundary', 400), 400)
+            return
+
+        body = handler.rfile.read(content_length)
+        parts = _parse_multipart(body, boundary)
+
+        image_data = None
+        question_text = ''
+        config_obj = {}
+
+        for field_name, filename, content in parts:
+            if field_name == 'image':
+                image_data = content
+            elif field_name == 'questionText':
+                question_text = content.decode('utf-8', errors='replace')
+            elif field_name == 'config':
+                try:
+                    config_obj = json.loads(content.decode('utf-8'))
+                except:
+                    pass
+
+        if image_data is None:
+            handler._send_json(api_error('No image uploaded', 400), 400)
+            return
+
+        # 保存图片
+        img_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+        img_path = os.path.join(IMAGES_DIR, f"{img_id}.png")
+        with open(img_path, 'wb') as f:
+            f.write(image_data)
+
+        # 调用图像分析
+        from analyzers.image_analyzer import ImageAnalyzer
+        import config as cfg_module
+        
+        app_config = cfg_module.DEFAULT_CONFIG
+        if config_obj:
+            app_config = app_config.merge_dict(config_obj)
+        
+        analyzer = ImageAnalyzer(app_config=app_config)
+        result = analyzer.analyze_image(image_data, question_text)
+        
+        # 提取绘制命令
+        drawing_commands = analyzer.extract_drawing_commands(result, config_obj or {})
+        
+        handler._send_json(api_success({
+            'analysis': result,
+            'drawingCommands': drawing_commands,
+            'imageId': img_id,
+        }))
+
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
 
 
 routes = {
@@ -538,6 +672,7 @@ routes = {
     '/api/homework/upload': {'handler': _handle_upload, 'methods': ['POST']},
     '/api/homework/generate': {'handler': _handle_generate, 'methods': ['POST']},
     '/api/homework/preview': {'handler': _handle_preview, 'methods': ['POST']},
+    '/api/homework/analyze-image': {'handler': _handle_image_analyze, 'methods': ['POST']},
     '/api/llm/call': {'handler': _handle_llm_call, 'methods': ['POST']},
 }
 
@@ -556,12 +691,12 @@ class APIHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
 
     def _send_error(self, message, status=500):
-        self._send_json(api_result(False, error=message, http_status=status), status)
+        self._send_json(api_error(message, status), status)
 
     def _check_rate_limit(self):
         client_ip = self.client_address[0]
         if not rate_limiter.is_allowed(client_ip):
-            self._send_json(api_result(False, error='Rate limit exceeded', http_status=429), 429)
+            self._send_json(api_error('Rate limit exceeded', 429), 429)
             return False
         return True
 

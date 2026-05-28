@@ -5,26 +5,81 @@ const fs = require('fs')
 const http = require('http')
 const crypto = require('crypto')
 
+process.on('uncaughtException', (err) => {
+  const msg = `[CRASH] ${new Date().toISOString()} Uncaught Exception: ${err.stack || err.message}\n`
+  try {
+    const crashDir = path.join(app.getPath('userData'))
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true })
+    fs.appendFileSync(path.join(crashDir, 'crash.log'), msg)
+  } catch {}
+  console.error(msg)
+  dialog.showErrorBox('应用崩溃', `发生未预期的错误：${err.message}\n\n详细信息已记录到日志文件。`)
+  app.quit()
+})
+
+process.on('unhandledRejection', (reason) => {
+  const msg = `[CRASH] ${new Date().toISOString()} Unhandled Rejection: ${reason}\n`
+  try {
+    const crashDir = path.join(app.getPath('userData'))
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true })
+    fs.appendFileSync(path.join(crashDir, 'crash.log'), msg)
+  } catch {}
+  console.error(msg)
+})
+
 app.commandLine.appendSwitch('no-sandbox')
 app.commandLine.appendSwitch('disable-gpu-sandbox')
+app.commandLine.appendSwitch('disable-gpu')
+
+let logStream = null
+let logReady = false
+
+function initLog() {
+  try {
+    const logDir = app.getPath('userData')
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
+    const logFile = path.join(logDir, 'app.log')
+    logStream = fs.createWriteStream(logFile, { flags: 'a' })
+    logReady = true
+  } catch (err) {
+    console.error('Failed to init log:', err.message)
+  }
+}
+
+function log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  if (logReady && logStream) {
+    logStream.write(line)
+  }
+  console.log(line.trim())
+}
+
+initLog()
+
+log(`App starting... isPackaged=${app.isPackaged}, __dirname=${__dirname}`)
+log(`Electron version: ${process.versions.electron}, Node: ${process.version}`)
+log(`Platform: ${process.platform}, Arch: ${process.arch}`)
+
+const isPackaged = __dirname.includes('app.asar') || (app.isPackaged && !fs.existsSync(path.resolve(__dirname, '..', 'package.json')))
 
 function getAppRoot() {
-  const fromDirname = path.resolve(__dirname, '..')
-  if (fs.existsSync(path.join(fromDirname, 'electron', 'server.py'))) {
-    return fromDirname
-  }
-  if (fs.existsSync(path.join(process.resourcesPath, 'electron', 'server.py'))) {
+  if (isPackaged) {
+    log(`Packaged mode, resourcesPath: ${process.resourcesPath}`)
     return process.resourcesPath
   }
-  return fromDirname
+  log(`Dev mode, __dirname parent: ${path.resolve(__dirname, '..')}`)
+  return path.resolve(__dirname, '..')
 }
 
 const appRoot = getAppRoot()
 
-const isDev = process.env.NODE_ENV === 'development' || !fs.existsSync(path.join(__dirname, '..', 'dist', 'index.html'))
+const isDev = !isPackaged
 const SERVER_PY = path.join(appRoot, 'electron', 'server.py')
 const uploadsDir = path.join(appRoot, 'uploads')
 const outputsDir = path.join(appRoot, 'outputs')
+
+log(`appRoot=${appRoot}, isDev=${isDev}, SERVER_PY=${SERVER_PY}`)
+log(`SERVER_PY exists: ${fs.existsSync(SERVER_PY)}`)
 
 let PYTHON = null
 
@@ -37,6 +92,7 @@ function findPython() {
     try {
       const result = require('child_process').execSync(`${cmd} ${name}`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
       if (result) {
+        log(`Found python via '${cmd} ${name}': ${result}`)
         return result.split(/\r?\n/)[0]
       }
     } catch {}
@@ -68,6 +124,7 @@ function findPython() {
 
     for (const p of winPaths) {
       if (fs.existsSync(p)) {
+        log(`Found python at: ${p}`)
         return p
       }
     }
@@ -75,6 +132,7 @@ function findPython() {
 
   const bundledPython = path.join(process.resourcesPath, 'python', 'python.exe')
   if (fs.existsSync(bundledPython)) {
+    log(`Found bundled python: ${bundledPython}`)
     return bundledPython
   }
 
@@ -92,18 +150,22 @@ function ensureDirs() {
 }
 
 function findFreePort() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = http.createServer()
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port
       server.close(() => resolve(port))
     })
+    server.on('error', reject)
   })
 }
 
 function startPythonServer(port) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, PORT: String(port) }
+    log(`Spawning Python: ${PYTHON} ${SERVER_PY} --port ${port}`)
+    log(`CWD: ${appRoot}`)
+
     pythonProcess = spawn(PYTHON, [SERVER_PY, '--port', String(port)], {
       cwd: appRoot,
       env,
@@ -113,7 +175,7 @@ function startPythonServer(port) {
 
     pythonProcess.stdout.on('data', (data) => {
       const msg = data.toString().trim()
-      console.log('[Python]', msg)
+      log(`[Python stdout] ${msg}`)
       if (msg.includes('Server running') && !resolved) {
         resolved = true
         resolve()
@@ -121,10 +183,12 @@ function startPythonServer(port) {
     })
 
     pythonProcess.stderr.on('data', (data) => {
-      console.error('[Python Error]', data.toString().trim())
+      const msg = data.toString().trim()
+      log(`[Python stderr] ${msg}`)
     })
 
     pythonProcess.on('error', (err) => {
+      log(`Python spawn error: ${err.message}`)
       if (!resolved) {
         resolved = true
         reject(err)
@@ -132,13 +196,16 @@ function startPythonServer(port) {
     })
 
     pythonProcess.on('close', (code) => {
-      if (code !== 0 && code !== null) {
-        console.error(`Python process exited with code ${code}`)
+      log(`Python process exited with code ${code}`)
+      if (code !== 0 && code !== null && !resolved) {
+        resolved = true
+        reject(new Error(`Python exited with code ${code}`))
       }
     })
 
     setTimeout(() => {
       if (!resolved) {
+        log('Python server startup timeout (5s), proceeding anyway')
         resolved = true
         resolve()
       }
@@ -210,11 +277,22 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
+    log(`Loading file: ${indexPath}`)
+    mainWindow.loadFile(indexPath)
   }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
+    log('Window shown')
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    log('Web content loaded successfully')
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc) => {
+    log(`Web content failed to load: ${errorCode} ${errorDesc}`)
   })
 
   mainWindow.on('closed', () => {
@@ -223,11 +301,13 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  log('App ready, initializing...')
   ensureDirs()
 
   PYTHON = findPython()
+  log(`Python found: ${PYTHON}`)
   if (!PYTHON) {
-    const result = dialog.showMessageBoxSync(mainWindow || null, {
+    dialog.showMessageBoxSync(null, {
       type: 'error',
       title: '缺少 Python 环境',
       message: '未找到 Python，请安装 Python 3.10+ 并添加到系统 PATH。',
@@ -240,22 +320,28 @@ app.whenReady().then(async () => {
 
   try {
     serverPort = await findFreePort()
+    log(`Starting Python server on port ${serverPort}`)
     await startPythonServer(serverPort)
-    console.log(`Python server started on port ${serverPort}`)
+    log(`Python server started on port ${serverPort}`)
   } catch (err) {
-    console.error('Failed to start Python server:', err)
-    dialog.showErrorBox('启动错误', '无法启动 Python 后端服务，请确保 Python 已正确安装。')
+    log(`Failed to start Python server: ${err.message}`)
+    dialog.showErrorBox('启动错误', `无法启动 Python 后端服务：${err.message}\n\n请确保 Python 已正确安装。`)
     app.quit()
     return
   }
 
   createWindow()
+  log('Window created successfully')
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
     }
   })
+}).catch((err) => {
+  log(`Fatal error in app.whenReady: ${err.stack || err.message}`)
+  dialog.showErrorBox('启动失败', `应用启动时发生错误：${err.message}`)
+  app.quit()
 })
 
 app.on('window-all-closed', () => {
@@ -270,6 +356,9 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   if (pythonProcess) {
     pythonProcess.kill()
+  }
+  if (logStream) {
+    logStream.end()
   }
 })
 

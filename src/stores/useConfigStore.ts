@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
-interface ConfigData {
+export interface ConfigState {
   paperWidth: number
   paperHeight: number
   marginTop: number
@@ -13,31 +14,52 @@ interface ConfigData {
   lineSpacing: number
   questionSpacing: number
   charSpacing: number
+  charSpacingVar: number
+  baselineWobble: number
+  slant: number
   penUpHeight: number
   penDownHeight: number
   travelSpeed: number
   drawSpeed: number
   handDrawnAmplitude: number
   handDrawnCornerExaggeration: number
-  charSpacingVar: number
-  baselineWobble: number
-  slant: number
-  paperTemplate: 'blank' | 'ruled' | 'grid' | 'notebook'
+  paperTemplate: string
   llmBaseUrl: string
   llmApiKey: string
   llmModel: string
-}
+  providerId: string
 
-interface ConfigState extends ConfigData {
-  outputFormat: 'kuixiang' | 'svg' | 'gcode'
-  seed: number | null
+  setPaperWidth: (v: number) => void
+  setPaperHeight: (v: number) => void
+  setMarginTop: (v: number) => void
+  setMarginBottom: (v: number) => void
+  setMarginLeft: (v: number) => void
+  setMarginRight: (v: number) => void
+  setFontSizeTitle: (v: number) => void
+  setFontSizeBody: (v: number) => void
+  setFontSizeLabel: (v: number) => void
+  setLineSpacing: (v: number) => void
+  setQuestionSpacing: (v: number) => void
+  setCharSpacing: (v: number) => void
+  setCharSpacingVar: (v: number) => void
+  setBaselineWobble: (v: number) => void
+  setSlant: (v: number) => void
+  setPenUpHeight: (v: number) => void
+  setPenDownHeight: (v: number) => void
+  setTravelSpeed: (v: number) => void
+  setDrawSpeed: (v: number) => void
+  setHandDrawnAmplitude: (v: number) => void
+  setHandDrawnCornerExaggeration: (v: number) => void
+  setPaperTemplate: (v: string) => void
+  setLlmBaseUrl: (v: string) => void
+  setLlmApiKey: (v: string) => void
+  setLlmModel: (v: string) => void
+  setProviderId: (v: string) => void
 
-  setField: <K extends keyof ConfigState>(key: K, value: ConfigState[K]) => void
-  getConfig: () => ConfigData
   resetToDefaults: () => void
 }
 
-const DEFAULT_DATA: ConfigData = {
+const DEFAULTS = {
   paperWidth: 210,
   paperHeight: 297,
   marginTop: 20,
@@ -50,63 +72,86 @@ const DEFAULT_DATA: ConfigData = {
   lineSpacing: 6.3,
   questionSpacing: 15,
   charSpacing: 1.2,
-  penUpHeight: 3.0,
-  penDownHeight: 0.0,
-  travelSpeed: 80.0,
-  drawSpeed: 25.0,
-  handDrawnAmplitude: 0.4,
-  handDrawnCornerExaggeration: 1.5,
-  charSpacingVar: 0.15,
-  baselineWobble: 0.3,
-  slant: 0.02,
+  charSpacingVar: 0.3,
+  baselineWobble: 0.5,
+  slant: 0,
+  penUpHeight: 5,
+  penDownHeight: 0,
+  travelSpeed: 80,
+  drawSpeed: 25,
+  handDrawnAmplitude: 0.3,
+  handDrawnCornerExaggeration: 2.0,
   paperTemplate: 'blank',
-  llmBaseUrl: 'https://api.deepseek.com/v1',
+  llmBaseUrl: '',
   llmApiKey: '',
-  llmModel: 'deepseek-coder',
+  llmModel: 'deepseek-chat',
+  providerId: 'deepseek',
 }
 
-export const useConfigStore = create<ConfigState>((set, get) => ({
-  ...DEFAULT_DATA,
-  outputFormat: 'kuixiang' as const,
-  seed: 42,
+export const useConfigStore = create<ConfigState>()(
+  persist(
+    (set) => ({
+      ...DEFAULTS,
 
-  setField: (key, value) => set({ [key]: value }),
+      setPaperWidth: (v) => set({ paperWidth: v }),
+      setPaperHeight: (v) => set({ paperHeight: v }),
+      setMarginTop: (v) => set({ marginTop: v }),
+      setMarginBottom: (v) => set({ marginBottom: v }),
+      setMarginLeft: (v) => set({ marginLeft: v }),
+      setMarginRight: (v) => set({ marginRight: v }),
+      setFontSizeTitle: (v) => set({ fontSizeTitle: v }),
+      setFontSizeBody: (v) => set({ fontSizeBody: v }),
+      setFontSizeLabel: (v) => set({ fontSizeLabel: v }),
+      setLineSpacing: (v) => set({ lineSpacing: v }),
+      setQuestionSpacing: (v) => set({ questionSpacing: v }),
+      setCharSpacing: (v) => set({ charSpacing: v }),
+      setCharSpacingVar: (v) => set({ charSpacingVar: v }),
+      setBaselineWobble: (v) => set({ baselineWobble: v }),
+      setSlant: (v) => set({ slant: v }),
+      setPenUpHeight: (v) => set({ penUpHeight: v }),
+      setPenDownHeight: (v) => set({ penDownHeight: v }),
+      setTravelSpeed: (v) => set({ travelSpeed: v }),
+      setDrawSpeed: (v) => set({ drawSpeed: v }),
+      setHandDrawnAmplitude: (v) => set({ handDrawnAmplitude: v }),
+      setHandDrawnCornerExaggeration: (v) => set({ handDrawnCornerExaggeration: v }),
+      setPaperTemplate: (v) => set({ paperTemplate: v }),
+      setLlmBaseUrl: (v) => set({ llmBaseUrl: v }),
+      setLlmApiKey: (v) => set({ llmApiKey: v }),
+      setLlmModel: (v) => set({ llmModel: v }),
+      setProviderId: (v) => set({ providerId: v }),
 
-  getConfig: () => {
-    const state = get()
-    return {
-      paperWidth: state.paperWidth,
-      paperHeight: state.paperHeight,
-      marginTop: state.marginTop,
-      marginBottom: state.marginBottom,
-      marginLeft: state.marginLeft,
-      marginRight: state.marginRight,
-      fontSizeTitle: state.fontSizeTitle,
-      fontSizeBody: state.fontSizeBody,
-      fontSizeLabel: state.fontSizeLabel,
-      lineSpacing: state.lineSpacing,
-      questionSpacing: state.questionSpacing,
-      charSpacing: state.charSpacing,
-      penUpHeight: state.penUpHeight,
-      penDownHeight: state.penDownHeight,
-      travelSpeed: state.travelSpeed,
-      drawSpeed: state.drawSpeed,
-      handDrawnAmplitude: state.handDrawnAmplitude,
-      handDrawnCornerExaggeration: state.handDrawnCornerExaggeration,
-      charSpacingVar: state.charSpacingVar,
-      baselineWobble: state.baselineWobble,
-      slant: state.slant,
-      paperTemplate: state.paperTemplate,
-      llmBaseUrl: state.llmBaseUrl,
-      llmApiKey: state.llmApiKey,
-      llmModel: state.llmModel,
+      resetToDefaults: () => set({ ...DEFAULTS }),
+    }),
+    {
+      name: 'ai-writing-robot-config',
+      partialize: (state) => ({
+        paperWidth: state.paperWidth,
+        paperHeight: state.paperHeight,
+        marginTop: state.marginTop,
+        marginBottom: state.marginBottom,
+        marginLeft: state.marginLeft,
+        marginRight: state.marginRight,
+        fontSizeTitle: state.fontSizeTitle,
+        fontSizeBody: state.fontSizeBody,
+        fontSizeLabel: state.fontSizeLabel,
+        lineSpacing: state.lineSpacing,
+        questionSpacing: state.questionSpacing,
+        charSpacing: state.charSpacing,
+        charSpacingVar: state.charSpacingVar,
+        baselineWobble: state.baselineWobble,
+        slant: state.slant,
+        penUpHeight: state.penUpHeight,
+        penDownHeight: state.penDownHeight,
+        travelSpeed: state.travelSpeed,
+        drawSpeed: state.drawSpeed,
+        handDrawnAmplitude: state.handDrawnAmplitude,
+        handDrawnCornerExaggeration: state.handDrawnCornerExaggeration,
+        paperTemplate: state.paperTemplate,
+        llmBaseUrl: state.llmBaseUrl,
+        llmApiKey: state.llmApiKey,
+        llmModel: state.llmModel,
+        providerId: state.providerId,
+      }),
     }
-  },
-
-  resetToDefaults: () => set((state) => ({
-    ...DEFAULT_DATA,
-    llmApiKey: state.llmApiKey,
-    outputFormat: state.outputFormat,
-    seed: state.seed,
-  })),
-}))
+  )
+)

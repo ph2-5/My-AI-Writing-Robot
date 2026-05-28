@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { Upload, FileText, Loader2 } from 'lucide-react'
+import { Upload, FileText, Loader2, Image as ImageIcon, X } from 'lucide-react'
 import { useGenerateStore } from '@/stores/useGenerateStore'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/api'
@@ -9,7 +9,9 @@ export default function FileUpload() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploadedName, setUploadedName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [attachedImages, setAttachedImages] = useState<{ file: File; preview: string }[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -23,6 +25,11 @@ export default function FileUpload() {
 
       const formData = new FormData()
       formData.append('file', file)
+      
+      // 附加图片
+      attachedImages.forEach((img, index) => {
+        formData.append(`image_${index}`, img.file)
+      })
 
       try {
         const res = await apiFetch('/api/homework/upload', {
@@ -47,7 +54,7 @@ export default function FileUpload() {
         setUploading(false)
       }
     },
-    [setUploading, setUploadResult],
+    [setUploading, setUploadResult, attachedImages],
   )
 
   const handleDrop = useCallback(
@@ -82,8 +89,36 @@ export default function FileUpload() {
     [uploadFile],
   )
 
+  // 添加图片
+  const handleAddImage = useCallback(() => {
+    imageInputRef.current?.click()
+  }, [])
+
+  const handleImageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+
+    const newImages: { file: File; preview: string }[] = []
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const preview = event.target?.result as string
+          setAttachedImages(prev => [...prev, { file, preview }])
+        }
+        reader.readAsDataURL(file)
+      }
+    })
+  }, [])
+
+  // 移除图片
+  const handleRemoveImage = useCallback((index: number) => {
+    setAttachedImages(prev => prev.filter((_, i) => i !== index))
+  }, [])
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* 主文件上传区域 */}
       <div
         onClick={handleClick}
         onDrop={handleDrop}
@@ -128,6 +163,51 @@ export default function FileUpload() {
             </>
           )}
         </div>
+      </div>
+
+      {/* 图片附件区域 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-zinc-500">题目图片附件（可选）</p>
+          <button
+            onClick={handleAddImage}
+            className="flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors"
+          >
+            <ImageIcon className="h-3 w-3" />
+            添加图片
+          </button>
+        </div>
+        
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleImageChange}
+          className="hidden"
+        />
+
+        {/* 图片预览 */}
+        {attachedImages.length > 0 && (
+          <div className="grid grid-cols-4 gap-2">
+            {attachedImages.map((img, index) => (
+              <div key={index} className="relative group">
+                <img
+                  src={img.preview}
+                  alt={`附件 ${index + 1}`}
+                  className="h-16 w-full rounded-md object-cover border border-zinc-700"
+                />
+                <button
+                  onClick={() => handleRemoveImage(index)}
+                  className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                <p className="text-[10px] text-zinc-500 truncate mt-0.5">{img.file.name}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (

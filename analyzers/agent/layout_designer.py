@@ -177,15 +177,83 @@ class LayoutDesignerAgent:
 
             self._emit_progress('refining', f'第 {question.number} 题布局修正（第 {iterations} 轮）...')
 
-            adjust_tool = self._tool_implementations.get('adjust_layout')
-            if adjust_tool:
-                commands = adjust_tool(commands, validation['issues'])
-                current_plan = self._rebuild_plan_from_commands(current_plan, commands, validation['issues'])
-            else:
-                break
+            # 修复：不再截断内容，而是调整布局参数
+            current_plan = self._smart_adjust_layout(current_plan, validation['issues'], config_dict)
 
         current_plan['_iterations'] = iterations
         return current_plan
+
+    def _smart_adjust_layout(self, original_plan: Dict[str, Any], issues: List[Dict], 
+                             config_dict: dict) -> Dict[str, Any]:
+        """
+        智能调整布局：优先调整布局参数，不截断内容
+        """
+        layout_plan = original_plan.get('layout_plan', {})
+        sections = layout_plan.get('sections', [])
+        
+        # 获取纸张配置
+        c = self._app_config
+        paper_w = config_dict.get('paperWidth', c.PAPER_WIDTH)
+        margin_l = config_dict.get('marginLeft', c.MARGIN_LEFT)
+        margin_r = config_dict.get('marginRight', c.MARGIN_RIGHT)
+        writable_w = paper_w - margin_l - margin_r
+
+        for issue in issues:
+            issue_type = issue.get('type', '')
+            
+            if issue_type == 'overflow_right':
+                # 策略1：缩小字号
+                for sec in sections:
+                    if sec.get('type') == 'text':
+                        style = sec.get('style', {})
+                        current_size = style.get('font_size', 'body')
+                        if current_size == 'title':
+                            style['font_size'] = 'body'
+                        elif current_size == 'body':
+                            style['font_size'] = 'label'
+                        sec['style'] = style
+                        break
+                
+                # 策略2：如果还是溢出，增加宽度比例（对于图形）
+                for sec in sections:
+                    if sec.get('type') in ('uml_usecase', 'uml_class', 'uml_sequence', 'uml_activity'):
+                        size_hint = sec.get('size_hint', {})
+                        current_ratio = size_hint.get('width_ratio', 0.8)
+                        if current_ratio < 0.95:
+                            size_hint['width_ratio'] = min(0.95, current_ratio + 0.05)
+                            sec['size_hint'] = size_hint
+                        break
+
+            elif issue_type == 'overlap':
+                # 策略：增加图形间距，减小尺寸
+                for sec in sections:
+                    if sec.get('type') in ('uml_usecase', 'uml_class', 'uml_sequence', 'uml_activity'):
+                        size_hint = sec.get('size_hint', {})
+                        current_ratio = size_hint.get('width_ratio', 0.8)
+                        if current_ratio > 0.5:
+                            size_hint['width_ratio'] = current_ratio - 0.05
+                            size_hint['min_height'] = size_hint.get('min_height', 60) + 10
+                            sec['size_hint'] = size_hint
+                        break
+
+            elif issue_type == 'overflow_bottom':
+                # 策略1：添加分页标记
+                for i, sec in enumerate(sections):
+                    if sec.get('type') == 'text':
+                        sec['page_break'] = True
+                        break
+                    elif sec.get('type') in ('uml_usecase', 'uml_class', 'uml_sequence', 'uml_activity'):
+                        # 对于图形，减小高度
+                        size_hint = sec.get('size_hint', {})
+                        min_height = size_hint.get('min_height', 60)
+                        if min_height > 40:
+                            size_hint['min_height'] = min_height - 10
+                            sec['size_hint'] = size_hint
+                        break
+
+        layout_plan['sections'] = sections
+        original_plan['layout_plan'] = layout_plan
+        return original_plan
 
     def _repair_empty_layout(self, question: Question, plan: Dict[str, Any], config_dict: dict) -> Dict[str, Any]:
         answer = plan.get('answer_content', '')
@@ -223,61 +291,6 @@ class LayoutDesignerAgent:
         elif question.type == 'uml_activity':
             elements = {'start_node': True, 'activities': ['活动1'], 'decisions': [], 'end_node': True}
         return elements
-
-    def _rebuild_plan_from_commands(self, original_plan: Dict[str, Any], commands: List[Dict], issues: List[Dict]) -> Dict[str, Any]:
-        layout_plan = original_plan.get('layout_plan', {})
-        sections = layout_plan.get('sections', [])
-
-        issue_types = [issue['type'] for issue in issues]
-
-        for issue in issues:
-            if issue['type'] == 'overflow_right':
-                for sec in sections:
-                    if sec.get('type') == 'text':
-                        content = sec.get('content', '')
-                        if len(content) > 20:
-                            max_chars = int(len(content) * 0.7)
-                            cut_pos = content.rfind('。', 0, max_chars)
-                            if cut_pos == -1:
-                                cut_pos = content.rfind('，', 0, max_chars)
-                            if cut_pos == -1:
-                                cut_pos = max_chars
-                            sec['content'] = content[:cut_pos + 1]
-
-            elif issue['type'] == 'overlap':
-                for sec in sections:
-                    if sec.get('type') in ('uml_usecase', 'uml_class', 'uml_sequence', 'uml_activity'):
-                        size_hint = sec.get('size_hint', {})
-                        current_ratio = size_hint.get('width_ratio', 0.8)
-                        if current_ratio > 0.5:
-                            sec['size_hint'] = {
-                                'width_ratio': current_ratio - 0.1,
-                                'min_height': size_hint.get('min_height', 60) + 15,
-                            }
-
-            elif issue['type'] == 'overflow_bottom':
-                for sec in sections:
-                    if sec.get('type') == 'text':
-                        content = sec.get('content', '')
-                        if len(content) > 30:
-                            half = len(content) // 2
-                            cut_pos = content.rfind('。', 0, half)
-                            if cut_pos == -1:
-                                cut_pos = half
-                            first_part = content[:cut_pos + 1]
-                            second_part = content[cut_pos + 1:]
-                            sections.append({
-                                'type': 'text',
-                                'content': second_part,
-                                'relative_position': {'placement': 'flow'},
-                                'style': sec.get('style', {'font_size': 'body'}),
-                            })
-                            sec['content'] = first_part
-                            break
-
-        layout_plan['sections'] = sections
-        original_plan['layout_plan'] = layout_plan
-        return original_plan
 
     def _ensure_valid_structure(self, result: Dict[str, Any]) -> Dict[str, Any]:
         if 'answer_content' not in result:
@@ -342,7 +355,7 @@ class LayoutDesignerAgent:
         font_body = config_dict.get('fontSizeBody', c.FONT_SIZE_BODY)
         line_spacing = config_dict.get('lineSpacing', c.LINE_SPACING)
 
-        return f"""你是一位UML建模专家和作业排版设计师。你正在使用Agent模式工作——生成方案后系统会自动验证，如果发现问题会反馈给你修正。
+        return f"""你是一位专业的作业排版设计师。你的任务是为学生作业生成完整的答案内容和合理的排版方案。
 
 【当前用户配置】
 - 纸张尺寸：{paper_w}mm x {paper_h}mm
@@ -352,69 +365,48 @@ class LayoutDesignerAgent:
 - 每行约 {int(writable_w / (font_body * 1.2))} 个汉字
 
 【你的任务】
-1. 理解作业题目，生成准确答案
-2. 设计排版方案，使用相对位置描述
-3. 系统会自动验证你的方案，如果布局有问题（溢出、重叠），你需要修正
+1. 理解作业题目要求，生成准确、完整的答案内容
+2. 设计合理的排版方案，使用相对位置描述
+3. 系统会自动验证布局，如有问题会调整参数，不会修改你的内容
+
+【重要规则】
+1. 答案内容必须完整准确，不要省略关键步骤
+2. 文字内容不需要手动换行，系统会自动处理
+3. 对于图形题，描述清楚图形结构和元素关系
+4. 保持专业规范的学术表达
+
+【支持的题型】
+- text: 文字题（论述、计算、证明等）
+- uml_usecase: UML用例图
+- uml_class: UML类图
+- uml_sequence: UML时序图
+- uml_activity: UML活动图
+- mechanical_drawing: 机械制图
+- circuit_diagram: 电路图
+- math_function: 数学函数图像
+- math_geometry: 几何图形
+- flowchart: 流程图
 
 【输出格式 - 必须是JSON】
 {{
-  "answer_content": "完整答案内容",
+  "answer_content": "完整答案内容（必须完整，不要省略）",
   "layout_plan": {{
     "sections": [
       {{
         "type": "text",
-        "content": "文字内容（会自动换行，无需手动加换行符）",
+        "content": "文字内容",
         "relative_position": {{"placement": "flow"}},
-        "style": {{"font_size": "title"}}
+        "style": {{"font_size": "title/body/label"}}
       }},
       {{
         "type": "uml_usecase",
         "elements": {{
-          "actors": ["参与者名称1", "参与者名称2"],
-          "usecases": ["用例名称1", "用例名称2"],
-          "relations": [
-            {{"from": "参与者名称1", "to": "用例名称1", "type": "association"}},
-            {{"from": "用例名称1", "to": "用例名称2", "type": "include"}}
-          ]
+          "actors": ["参与者"],
+          "usecases": ["用例"],
+          "relations": [{{"from": "", "to": "", "type": "association/include/extend"}}]
         }},
         "relative_position": {{"placement": "center"}},
         "size_hint": {{"width_ratio": 0.8, "min_height": 80}}
-      }},
-      {{
-        "type": "uml_class",
-        "elements": {{
-          "classes": [
-            {{"name": "类名", "attributes": ["属性1", "属性2"], "methods": ["方法1()"]}}
-          ],
-          "relations": [
-            {{"from": "类A", "to": "类B", "type": "inheritance"}}
-          ]
-        }},
-        "relative_position": {{"placement": "center"}},
-        "size_hint": {{"width_ratio": 0.9, "min_height": 100}}
-      }},
-      {{
-        "type": "uml_sequence",
-        "elements": {{
-          "participants": ["对象A", "对象B", "对象C"],
-          "messages": [
-            {{"from": "对象A", "to": "对象B", "label": "消息1", "type": "sync"}},
-            {{"from": "对象B", "to": "对象A", "label": "返回1", "type": "return"}}
-          ]
-        }},
-        "relative_position": {{"placement": "center"}},
-        "size_hint": {{"width_ratio": 0.9, "min_height": 120}}
-      }},
-      {{
-        "type": "uml_activity",
-        "elements": {{
-          "activities": ["活动1", "活动2", "活动3"],
-          "decisions": [{{"condition": "条件", "true_branch": "活动2", "false_branch": "活动3"}}],
-          "start_node": true,
-          "end_node": true
-        }},
-        "relative_position": {{"placement": "center"}},
-        "size_hint": {{"width_ratio": 0.7, "min_height": 100}}
       }}
     ]
   }},
@@ -424,15 +416,17 @@ class LayoutDesignerAgent:
   }}
 }}
 
-【关键规则】
-1. sections 数组中的 type 只能是：text, uml_usecase, uml_class, uml_sequence, uml_activity
-2. relations 中的 from/to 必须与 actors/usecases/participants/classes 中的名称完全一致
-3. 文字内容会自动换行，不需要手动添加换行
-4. UML 图的元素数量要合理（参与者2-4个，用例3-8个）
-5. 答案内容要完整、准确、规范"""
+【排版提示】
+- 标题使用 font_size: "title"
+- 正文使用 font_size: "body"
+- 标注使用 font_size: "label"
+- UML图使用 placement: "center" 居中
+- 文字题使用 placement: "flow" 流式布局
+- 图形宽度比例 width_ratio 建议 0.7-0.9
+"""
 
     def _build_user_prompt(self, q: Question, config_dict: dict) -> str:
-        return f"""请分析以下作业题目，生成完整答案和排版方案。
+        prompt = f"""请为以下作业题目生成完整的答案和排版方案。
 
 【题目信息】
 题号: {q.number}
@@ -440,7 +434,15 @@ class LayoutDesignerAgent:
 内容: {q.text}
 要求: {', '.join(q.requirements) if q.requirements else '无特殊要求'}
 
-请输出JSON格式的完整方案。"""
+【要求】
+1. 答案内容必须完整、准确、专业
+2. 如果是计算题，写出完整的推导过程
+3. 如果是证明题，写出完整的证明步骤
+4. 如果是作图题，描述清楚图形结构和关键参数
+5. 输出必须是JSON格式
+
+请生成JSON格式的完整方案："""
+        return prompt
 
     def _define_tools(self) -> list:
         return [

@@ -13,6 +13,7 @@ from logging_utils import get_logger
 
 from parsers.homework_parser import HomeworkParser
 from analyzers.homework_analyzer import HomeworkAnalyzer
+from analyzers.image_analyzer import ImageAnalyzer
 from layout.layout_engine import LayoutEngine
 from layout.precision_layout import PrecisionLayout
 from effects.hand_drawn import HandDrawnEffect
@@ -71,7 +72,7 @@ def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = No
         log_lines.append(msg)
         logger.info(msg)
 
-    log(f"[1/6] 解析Word文档: {docx_path}")
+    log(f"[1/7] 解析Word文档: {docx_path}")
     parser = HomeworkParser(docx_path)
     parsed = parser.parse()
 
@@ -84,12 +85,51 @@ def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = No
             'requirements': q.requirements,
         })
     log(f"  识别到 {len(parsed['questions'])} 道题目")
+    
+    # 检查是否有图片题目
+    image_questions = parsed.get('image_questions', [])
+    if image_questions:
+        log(f"  发现 {len(image_questions)} 道题目包含图片")
 
-    log("[2/6] LLM智能分析（动态配置注入）...")
+    log("[2/7] 多模态图像分析（如需要）...")
+    image_analyzer = ImageAnalyzer(app_config=config)
+    image_analysis_results = {}
+    
+    for img_q in image_questions:
+        q_num = img_q['question_number']
+        images = img_q['images']
+        if images:
+            # 分析第一张图片
+            result = image_analyzer.analyze_image(images[0])
+            if result['success']:
+                image_analysis_results[q_num] = result
+                log(f"  第 {q_num} 题图片分析完成: {result.get('image_type', 'unknown')}")
+            else:
+                log(f"  第 {q_num} 题图片分析失败: {result.get('error', '未知错误')}")
+
+    log("[3/7] LLM智能分析（动态配置注入）...")
     analyzer = HomeworkAnalyzer(app_config=config)
     analyses = analyzer.batch_analyze(parsed['questions'], user_config=config_dict)
+    
+    # 将图像分析结果合并到LLM分析结果中
+    for result in analyses:
+        question = result['question']
+        if question.number in image_analysis_results:
+            img_result = image_analysis_results[question.number]
+            # 将图像分析的元素添加到drawing_commands
+            if 'drawing_commands' not in result['analysis']:
+                result['analysis']['drawing_commands'] = []
+            
+            # 转换图像元素为绘制命令
+            paper_config = config_dict or {}
+            drawing_commands = image_analyzer.extract_drawing_commands(img_result, paper_config)
+            result['analysis']['drawing_commands'].extend(drawing_commands)
+            
+            # 更新题目类型（如果图像识别出更具体的类型）
+            if img_result.get('image_type') != 'unknown':
+                result['analysis']['detected_image_type'] = img_result['image_type']
 
-    log("[3/6] AI Agent 精确排版...")
+    log("[4/7] AI Agent 精确排版...")
     all_commands = []
     for result in analyses:
         analysis = result['analysis']
@@ -105,22 +145,24 @@ def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = No
                 commands = precision.adjust(commands, validated['issues'])
 
             all_commands.extend(commands)
-        else:
-            legacy_commands = analysis.get('drawing_commands', [])
-            all_commands.extend(legacy_commands)
+        
+        # 添加图像识别的绘制命令
+        drawing_commands = analysis.get('drawing_commands', [])
+        if drawing_commands:
+            all_commands.extend(drawing_commands)
 
-    log("[4/6] 排版引擎路径生成...")
+    log("[5/7] 排版引擎路径生成...")
     engine = LayoutEngine(app_config=config)
     strokes = engine._generate_strokes(all_commands, offset_y=0)
 
-    log("[5/6] 字体变形 + 手绘风格化...")
+    log("[6/7] 字体变形 + 手绘风格化...")
     text_deformer = TextDeformer(seed=seed, app_config=config)
     deformed_strokes = text_deformer.deform(strokes, config_dict or {})
 
     effect = HandDrawnEffect(seed=seed, app_config=config)
     handdrawn_strokes = effect.apply(deformed_strokes)
 
-    log("[6/6] 生成机器人指令...")
+    log("[7/7] 生成机器人指令...")
     generator = RobotCommandGenerator(platform=output_format, app_config=config)
     output = generator.generate(handdrawn_strokes)
 
@@ -152,6 +194,11 @@ def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = No
         'questions': questions_data,
         'log': '\n'.join(log_lines),
         'styleRecommendations': style_recommendations,
+        'imageAnalysis': {
+            'totalImages': len(image_questions),
+            'analyzedImages': len(image_analysis_results),
+            'results': {str(k): v.get('image_type', 'unknown') for k, v in image_analysis_results.items()}
+        }
     }
 
 
@@ -171,6 +218,8 @@ def run_parse_only(docx_path: str):
     return {
         'questions': questions_data,
         'questionCount': len(questions_data),
+        'hasImages': len(parsed.get('images', [])) > 0,
+        'imageQuestions': [iq['question_number'] for iq in parsed.get('image_questions', [])]
     }
 
 

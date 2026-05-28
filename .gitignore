@@ -15,6 +15,8 @@ dist
 dist-ssr
 dist-electron
 release
+release2
+release3
 
 # Electron builder cache
 .cache
@@ -37,6 +39,7 @@ env
 # User data
 uploads
 outputs
+images
 
 # Environment
 .env
@@ -60,3 +63,17 @@ Desktop.ini
 
 # Demo / temp
 demo_output.svg
+
+# Large binary files
+*.exe
+*.dll
+*.pak
+*.bin
+*.blockmap
+
+# Trae internal
+.trae/
+
+# Scripts (local only)
+一键构建.bat
+启动AI写字机器人.bat

@@ -20,6 +20,7 @@ export class ApiClient {
   private responseInterceptors: ResponseInterceptor[] = []
   private readonly defaultTimeout = 30000
   private readonly generateTimeout = 120000
+  private readonly imageAnalyzeTimeout = 60000
   private readonly maxRetries = 1
 
   private isElectron(): boolean {
@@ -120,7 +121,7 @@ export class ApiClient {
     }
   }
 
-  async upload(file: File): Promise<ApiResult> {
+  async upload(file: File, attachedImages?: File[]): Promise<ApiResult> {
     if (this.isElectron() && (window as any).electronAPI.upload) {
       try {
         const buffer = await file.arrayBuffer()
@@ -130,10 +131,29 @@ export class ApiClient {
           binary += String.fromCharCode(uint8[i])
         }
         const base64 = btoa(binary)
+        
+        // 处理附加图片
+        const imageData: { name: string; data: string }[] = []
+        if (attachedImages) {
+          for (const img of attachedImages) {
+            const imgBuffer = await img.arrayBuffer()
+            const imgUint8 = new Uint8Array(imgBuffer)
+            let imgBinary = ''
+            for (let i = 0; i < imgUint8.length; i++) {
+              imgBinary += String.fromCharCode(imgUint8[i])
+            }
+            imageData.push({
+              name: img.name,
+              data: btoa(imgBinary),
+            })
+          }
+        }
+        
         const result = await (window as any).electronAPI.upload({
           fileName: file.name,
           fileData: base64,
           mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          attachedImages: imageData,
         })
         return {
           success: result.success,
@@ -150,6 +170,14 @@ export class ApiClient {
 
     const formData = new FormData()
     formData.append('file', file)
+    
+    // 添加附加图片
+    if (attachedImages) {
+      attachedImages.forEach((img, index) => {
+        formData.append(`image_${index}`, img)
+      })
+    }
+    
     return this.request('/api/homework/upload', {
       method: 'POST',
       body: formData,
@@ -162,6 +190,7 @@ export class ApiClient {
       format: string
       seed: number | null
       config: Record<string, unknown>
+      imageIds?: string[]
     },
     onProgress?: (msg: string) => void,
   ): Promise<ApiResult> {
@@ -352,6 +381,33 @@ export class ApiClient {
       }
       return { success: false, error: err.message || '预览失败' }
     }
+  }
+
+  // 新增：图像分析接口
+  async analyzeImage(
+    imageFile: File,
+    questionText?: string,
+    config?: Record<string, unknown>,
+  ): Promise<ApiResult> {
+    const formData = new FormData()
+    formData.append('image', imageFile)
+    
+    if (questionText) {
+      formData.append('questionText', questionText)
+    }
+    
+    if (config) {
+      formData.append('config', JSON.stringify(config))
+    }
+
+    return this.request(
+      '/api/homework/analyze-image',
+      {
+        method: 'POST',
+        body: formData,
+      },
+      this.imageAnalyzeTimeout,
+    )
   }
 
   async health(): Promise<ApiResult> {

@@ -58,19 +58,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "main.py",
-      "config.py",
-      "requirements.txt",
-      "analyzers/**/*",
-      "effects/**/*",
-      "fonts/**/*",
-      "layout/**/*",
-      "output/**/*",
-      "parsers/**/*",
-      "tests/**/*",
-      "uploads",
-      "outputs",
-      "node_modules/**/*"
+      "!node_modules"
     ],
     "extraResources": [
       {
@@ -91,8 +79,8 @@
         ]
       },
       {
-        "from": "./启动AI写字机器人.bat",
-        "to": "启动AI写字机器人.bat"
+        "from": "./electron/server.py",
+        "to": "electron/server.py"
       }
     ],
     "win": {
@@ -100,24 +88,21 @@
         {
           "target": "nsis",
           "arch": ["x64"]
-        },
-        {
-          "target": "portable",
-          "arch": ["x64"]
         }
       ],
-      "icon": "public/favicon.svg",
-      "artifactName": "AI写字机器人-${version}-${arch}.${ext}"
+      "forceCodeSigning": false,
+      "signAndEditExecutable": false,
+      "artifactName": "AI写字机器人-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/favicon.svg",
-      "uninstallerIcon": "public/favicon.svg",
-      "installerHeaderIcon": "public/favicon.svg",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AI写字机器人"
+      "shortcutName": "AI写字机器人",
+      "installerLanguages": ["zh-CN"],
+      "language": 2052,
+      "artifactName": "AI写字机器人-Setup-${version}-${arch}.${ext}"
     }
   }
 }

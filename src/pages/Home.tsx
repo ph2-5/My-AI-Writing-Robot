@@ -10,11 +10,47 @@ import QuestionList from '@/components/QuestionList'
 import LayoutPreview from '@/components/LayoutPreview'
 import PreviewCanvas from '@/components/PreviewCanvas'
 import GeneratePanel from '@/components/GeneratePanel'
+import AnswerReview, { AnswerItem } from '@/components/AnswerReview'
 import { useConfigStore } from '@/stores/useConfigStore'
-import { PenTool, RotateCcw } from 'lucide-react'
+import { useGenerateStore } from '@/stores/useGenerateStore'
+import { PenTool, RotateCcw, CheckSquare, Layout, Eye } from 'lucide-react'
+import { useState, useCallback } from 'react'
 
 export default function Home() {
   const resetToDefaults = useConfigStore((s) => s.resetToDefaults)
+  const { questionPlans } = useGenerateStore()
+  const [activeTab, setActiveTab] = useState<'preview' | 'review'>('preview')
+  const [answers, setAnswers] = useState<AnswerItem[]>([])
+
+  // 从questionPlans生成答案列表
+  const updateAnswersFromPlans = useCallback(() => {
+    if (questionPlans && questionPlans.length > 0) {
+      const newAnswers: AnswerItem[] = questionPlans.map((plan: any) => ({
+        questionNumber: plan.questionNumber || 0,
+        questionType: plan.questionType || 'unknown',
+        questionText: plan.questionText || '',
+        answerContent: plan.answerContent || '',
+        isCorrected: false,
+      }))
+      setAnswers(newAnswers)
+    }
+  }, [questionPlans])
+
+  const handleAnswerChange = useCallback((questionNumber: number, newContent: string) => {
+    setAnswers(prev => prev.map(item =>
+      item.questionNumber === questionNumber
+        ? { ...item, answerContent: newContent, isCorrected: true }
+        : item
+    ))
+  }, [])
+
+  const handleConfirm = useCallback((questionNumber: number) => {
+    setAnswers(prev => prev.map(item =>
+      item.questionNumber === questionNumber
+        ? { ...item, isCorrected: true }
+        : item
+    ))
+  }, [])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col">
@@ -48,9 +84,53 @@ export default function Home() {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <PreviewCanvas />
+          {/* 标签切换 */}
+          <div className="flex items-center gap-1 border-b border-zinc-800 px-4 py-2">
+            <button
+              onClick={() => setActiveTab('preview')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'preview'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              效果预览
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('review')
+                updateAnswersFromPlans()
+              }}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'review'
+                  ? 'bg-amber-600 text-white'
+                  : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              答案审核
+              {answers.length > 0 && (
+                <span className="ml-1 rounded-full bg-zinc-700 px-1.5 py-0.5 text-[10px]">
+                  {answers.filter(a => a.isCorrected).length}/{answers.length}
+                </span>
+              )}
+            </button>
           </div>
+
+          {/* 内容区域 */}
+          <div className="flex-1 overflow-hidden">
+            {activeTab === 'preview' ? (
+              <PreviewCanvas />
+            ) : (
+              <AnswerReview
+                answers={answers}
+                onAnswerChange={handleAnswerChange}
+                onConfirm={handleConfirm}
+              />
+            )}
+          </div>
+
           <div className="border-t border-zinc-800 shrink-0">
             <GeneratePanel />
           </div>
