@@ -28,6 +28,8 @@ export interface ConfigState {
   llmApiKey: string
   llmModel: string
   providerId: string
+  outputFormat: 'kuixiang' | 'svg' | 'gcode'
+  seed: number | null
 
   setPaperWidth: (v: number) => void
   setPaperHeight: (v: number) => void
@@ -55,7 +57,8 @@ export interface ConfigState {
   setLlmApiKey: (v: string) => void
   setLlmModel: (v: string) => void
   setProviderId: (v: string) => void
-
+  setField: (field: string, value: any) => void
+  getConfig: () => Record<string, unknown>
   resetToDefaults: () => void
 }
 
@@ -86,11 +89,13 @@ const DEFAULTS = {
   llmApiKey: '',
   llmModel: 'deepseek-chat',
   providerId: 'deepseek',
+  outputFormat: 'kuixiang' as 'kuixiang' | 'svg' | 'gcode',
+  seed: null as number | null,
 }
 
 export const useConfigStore = create<ConfigState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULTS,
 
       setPaperWidth: (v) => set({ paperWidth: v }),
@@ -120,11 +125,47 @@ export const useConfigStore = create<ConfigState>()(
       setLlmModel: (v) => set({ llmModel: v }),
       setProviderId: (v) => set({ providerId: v }),
 
+      setField: (field: string, value: any) => set((state: any) => ({ ...state, [field]: value })),
+
+      getConfig: () => {
+        const state = get() as ConfigState
+        return {
+          paperWidth: state.paperWidth,
+          paperHeight: state.paperHeight,
+          marginTop: state.marginTop,
+          marginBottom: state.marginBottom,
+          marginLeft: state.marginLeft,
+          marginRight: state.marginRight,
+          fontSizeTitle: state.fontSizeTitle,
+          fontSizeBody: state.fontSizeBody,
+          fontSizeLabel: state.fontSizeLabel,
+          lineSpacing: state.lineSpacing,
+          questionSpacing: state.questionSpacing,
+          charSpacing: state.charSpacing,
+          charSpacingVar: state.charSpacingVar,
+          baselineWobble: state.baselineWobble,
+          slant: state.slant,
+          penUpHeight: state.penUpHeight,
+          penDownHeight: state.penDownHeight,
+          travelSpeed: state.travelSpeed,
+          drawSpeed: state.drawSpeed,
+          handDrawnAmplitude: state.handDrawnAmplitude,
+          handDrawnCornerExaggeration: state.handDrawnCornerExaggeration,
+          paperTemplate: state.paperTemplate,
+          llmBaseUrl: state.llmBaseUrl,
+          llmApiKey: state.llmApiKey,
+          llmModel: state.llmModel,
+          providerId: state.providerId,
+          outputFormat: state.outputFormat,
+          seed: state.seed,
+        }
+      },
+
       resetToDefaults: () => set({ ...DEFAULTS }),
     }),
     {
       name: 'ai-writing-robot-config',
-      partialize: (state) => ({
+      partialize: (state: ConfigState) => ({
         paperWidth: state.paperWidth,
         paperHeight: state.paperHeight,
         marginTop: state.marginTop,
@@ -153,5 +194,5 @@ export const useConfigStore = create<ConfigState>()(
         providerId: state.providerId,
       }),
     }
-  )
+  ) as any
 )

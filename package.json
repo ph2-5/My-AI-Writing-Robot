@@ -37,6 +37,7 @@
     "concurrently": "^9.2.1",
     "electron": "^41.7.0",
     "electron-builder": "^26.8.1",
+    "electron-packager": "^17.1.2",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
@@ -53,7 +54,7 @@
     "appId": "com.aiwritingrobot.app",
     "productName": "AI写字机器人",
     "directories": {
-      "output": "release"
+      "output": "release-build"
     },
     "files": [
       "dist/**/*",
@@ -87,7 +88,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "forceCodeSigning": false,
@@ -100,7 +103,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "AI写字机器人",
-      "installerLanguages": ["zh-CN"],
+      "installerLanguages": [
+        "zh-CN"
+      ],
       "language": 2052,
       "artifactName": "AI写字机器人-Setup-${version}-${arch}.${ext}"
     }

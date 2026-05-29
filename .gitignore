@@ -17,6 +17,8 @@ dist-electron
 release
 release2
 release3
+release-build
+app-build
 
 # Electron builder cache
 .cache

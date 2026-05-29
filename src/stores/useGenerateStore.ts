@@ -54,6 +54,9 @@ interface GenerateState {
   addAgentProgress: (event: { stage: string; message: string; data?: Record<string, unknown>; timestamp: number }) => void
   clearAgentProgress: () => void
   setAgentWorking: (working: boolean) => void
+  setPreviewSvg: (svg: string) => void
+  setQuestionPlans: (plans: any[]) => void
+  setQuestions: (questions: Question[]) => void
 }
 
 const initialState = {
@@ -178,6 +181,12 @@ export const useGenerateStore = create<GenerateState>((set) => ({
   clearAgentProgress: () => set({ agentProgress: [] }),
 
   setAgentWorking: (working) => set({ isAgentWorking: working }),
+
+  setPreviewSvg: (svg) => set({ previewSvg: svg }),
+
+  setQuestionPlans: (plans) => set({ questionPlans: plans }),
+
+  setQuestions: (questions) => set({ questions }),
 
   startPreview: async (params) => {
     set({ isPreviewing: true, error: null, isAgentWorking: true, agentProgress: [] })
