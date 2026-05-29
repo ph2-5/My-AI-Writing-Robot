@@ -54,12 +54,13 @@
     "appId": "com.aiwritingrobot.app",
     "productName": "AI写字机器人",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "!node_modules"
+      "package.json"
     ],
     "extraResources": [
       {
@@ -80,10 +81,11 @@
         ]
       },
       {
-        "from": "./electron/server.py",
+        "from": "electron/server.py",
         "to": "electron/server.py"
       }
     ],
+    "asar": false,
     "win": {
       "target": [
         {
