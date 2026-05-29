@@ -25,6 +25,17 @@ const IPC_PERMISSIONS = {
     maxArgs: 1,
     validate: (args) => typeof args[0] === 'object' && args[0] !== null,
   },
+  'robot-ports': { maxArgs: 0, validate: null },
+  'robot-connect': {
+    maxArgs: 1,
+    validate: (args) => typeof args[0] === 'object' && args[0] !== null,
+  },
+  'robot-disconnect': { maxArgs: 0, validate: null },
+  'robot-status': { maxArgs: 0, validate: null },
+  'robot-send': {
+    maxArgs: 1,
+    validate: (args) => typeof args[0] === 'object' && args[0] !== null,
+  },
 }
 
 const rateLimits = new Map()
@@ -73,4 +84,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   demo: () => secureInvoke('demo'),
   download: (fileId) => secureInvoke('download', fileId),
   preview: (params) => secureInvoke('preview', params),
+  robotPorts: () => secureInvoke('robot-ports'),
+  robotConnect: (params) => secureInvoke('robot-connect', params),
+  robotDisconnect: () => secureInvoke('robot-disconnect'),
+  robotStatus: () => secureInvoke('robot-status'),
+  robotSend: (params) => secureInvoke('robot-send', params),
 })

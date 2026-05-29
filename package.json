@@ -55,7 +55,7 @@
     "appId": "com.aiwritingrobot.app",
     "productName": "AI写字机器人",
     "directories": {
-      "output": "release",
+      "output": "release-build",
       "buildResources": "build"
     },
     "files": [

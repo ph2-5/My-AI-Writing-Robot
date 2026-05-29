@@ -462,3 +462,25 @@ ipcMain.handle('preview', async (_e, { fileId, config }) => {
     body,
   })
 })
+
+ipcMain.handle('robot-ports', async () => serverRequest('GET', '/api/robot/ports'))
+
+ipcMain.handle('robot-connect', async (_e, { port, baudrate }) => {
+  const body = Buffer.from(JSON.stringify({ port, baudrate }), 'utf-8')
+  return serverRequest('POST', '/api/robot/connect', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    body,
+  })
+})
+
+ipcMain.handle('robot-disconnect', async () => serverRequest('POST', '/api/robot/disconnect'))
+
+ipcMain.handle('robot-status', async () => serverRequest('GET', '/api/robot/status'))
+
+ipcMain.handle('robot-send', async (_e, params) => {
+  const body = Buffer.from(JSON.stringify(params), 'utf-8')
+  return serverRequest('POST', '/api/robot/send', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    body,
+  })
+})
