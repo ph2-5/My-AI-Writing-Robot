@@ -1,13 +1,21 @@
 import json
+import time
 from typing import List, Dict, Any, Optional
 
 from openai import OpenAI
 
 import config
 from layout.models import Question
+from logging_utils import get_logger
+
+logger = get_logger('homework_analyzer')
 
 
 class HomeworkAnalyzer:
+
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2
+    TIMEOUT = 60.0
 
     def __init__(self, llm_client: Optional[OpenAI] = None, app_config=None):
         self._app_config = app_config if app_config is not None else config.DEFAULT_CONFIG
@@ -15,6 +23,8 @@ class HomeworkAnalyzer:
             self.llm = OpenAI(
                 base_url=self._app_config.LLM_BASE_URL,
                 api_key=self._app_config.LLM_API_KEY,
+                timeout=self.TIMEOUT,
+                max_retries=2,
             )
         else:
             self.llm = llm_client
@@ -22,16 +32,45 @@ class HomeworkAnalyzer:
     def analyze_question(self, question_data: Question, user_config: dict = None) -> Dict[str, Any]:
         prompt = self._build_analysis_prompt(question_data, user_config)
 
-        response = self.llm.chat.completions.create(
-            model=self._app_config.LLM_MODEL,
-            messages=[
-                {"role": "system", "content": self._system_prompt(user_config)},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = self.llm.chat.completions.create(
+                    model=self._app_config.LLM_MODEL,
+                    messages=[
+                        {"role": "system", "content": self._system_prompt(user_config)},
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                )
 
-        return json.loads(response.choices[0].message.content)
+                content = response.choices[0].message.content
+                if not content:
+                    if attempt < self.MAX_RETRIES - 1:
+                        logger.warning(f"第 {question_data.number} 题 LLM返回为空，重试 {attempt + 1}/{self.MAX_RETRIES}")
+                        time.sleep(self.RETRY_DELAY * (attempt + 1))
+                        continue
+                    return {'answer_content': '', 'layout_plan': {'sections': []}}
+
+                try:
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    if attempt < self.MAX_RETRIES - 1:
+                        logger.warning(f"第 {question_data.number} 题 JSON解析失败，重试 {attempt + 1}/{self.MAX_RETRIES}")
+                        time.sleep(self.RETRY_DELAY * (attempt + 1))
+                        continue
+                    return {'answer_content': '', 'layout_plan': {'sections': []}}
+
+                return result
+
+            except Exception as e:
+                if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"第 {question_data.number} 题 LLM调用失败({str(e)[:50]})，重试 {attempt + 1}/{self.MAX_RETRIES}")
+                    time.sleep(self.RETRY_DELAY * (attempt + 1))
+                    continue
+                logger.error(f"第 {question_data.number} 题 LLM调用最终失败: {str(e)[:80]}")
+                return {'answer_content': '', 'layout_plan': {'sections': []}}
+
+        return {'answer_content': '', 'layout_plan': {'sections': []}}
 
     def batch_analyze(self, questions: List[Question], user_config: dict = None) -> List[Dict[str, Any]]:
         results = []

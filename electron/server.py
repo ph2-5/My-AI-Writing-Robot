@@ -34,11 +34,14 @@ for stream_name in ('stdout', 'stderr'):
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main as core
+from output.robot_connection import RobotConnection
 
-UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
-OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'outputs')
-IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'images')
+UPLOADS_DIR = os.environ.get('UPLOADS_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads'))
+OUTPUTS_DIR = os.environ.get('OUTPUTS_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'outputs'))
+IMAGES_DIR = os.environ.get('IMAGES_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'images'))
 MAX_BODY_SIZE = 50 * 1024 * 1024
+
+robot_conn = RobotConnection.get_instance()
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -406,12 +409,21 @@ def _handle_generate(handler):
         ext = 'gcode' if fmt == 'gcode' else 'svg'
         output_path = os.path.join(OUTPUTS_DIR, f"{output_id}.{ext}")
 
+        api_config = resolve_api_config(data)
+        if config_obj:
+            if not api_config.get('apiUrl') and config_obj.get('llmBaseUrl'):
+                api_config['apiUrl'] = config_obj['llmBaseUrl']
+            if not api_config.get('apiKey') and config_obj.get('llmApiKey'):
+                api_config['apiKey'] = config_obj['llmApiKey']
+            if not api_config.get('modelId') and config_obj.get('llmModel'):
+                api_config['modelId'] = config_obj['llmModel']
         result = core.run_generate(
             input_path,
             output_format=fmt,
             seed=seed,
             output_path=output_path,
             config_dict=config_obj,
+            api_config=api_config,
         )
 
         with open(output_path, 'r', encoding='utf-8') as f:
@@ -468,8 +480,16 @@ def _handle_preview(handler):
 
         input_path = os.path.join(UPLOADS_DIR, matched[0])
 
+        api_config = resolve_api_config(data)
+        if config_obj:
+            if not api_config.get('apiUrl') and config_obj.get('llmBaseUrl'):
+                api_config['apiUrl'] = config_obj['llmBaseUrl']
+            if not api_config.get('apiKey') and config_obj.get('llmApiKey'):
+                api_config['apiKey'] = config_obj['llmApiKey']
+            if not api_config.get('modelId') and config_obj.get('llmModel'):
+                api_config['modelId'] = config_obj['llmModel']
         if not stream:
-            result = core.run_preview(input_path, config_dict=config_obj)
+            result = core.run_preview(input_path, config_dict=config_obj, api_config=api_config)
             handler._send_json(api_success({
                 'previewSvg': result.get('previewSvg', ''),
                 'questionPlans': result.get('questionPlans', []),
@@ -490,7 +510,7 @@ def _handle_preview(handler):
 
         def run_in_thread():
             try:
-                result = core.run_preview(input_path, config_dict=config_obj, on_progress=on_progress)
+                result = core.run_preview(input_path, config_dict=config_obj, api_config=api_config, on_progress=on_progress)
                 event_queue.put(('result', result))
             except Exception as e:
                 event_queue.put(('error', str(e)))
@@ -665,6 +685,91 @@ def _handle_image_analyze(handler):
         handler._send_json(api_error(str(e), 500), 500)
 
 
+def _handle_robot_ports(handler):
+    try:
+        ports = RobotConnection.list_ports()
+        handler._send_json(api_success({'ports': ports, 'pyserialAvailable': RobotConnection.HAS_SERIAL if hasattr(RobotConnection, 'HAS_SERIAL') else bool(ports) or True}))
+    except Exception as e:
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_robot_connect(handler):
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        port = data.get('port', '')
+        baudrate = data.get('baudrate', 115200)
+
+        if not port:
+            handler._send_json(api_error('port is required', 400), 400)
+            return
+
+        result = robot_conn.connect(port, baudrate)
+        if result['success']:
+            handler._send_json(api_success(result))
+        else:
+            handler._send_json(api_error(result.get('error', '连接失败'), 500), 500)
+    except Exception as e:
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_robot_disconnect(handler):
+    try:
+        result = robot_conn.disconnect()
+        handler._send_json(api_success(result))
+    except Exception as e:
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_robot_status(handler):
+    try:
+        status = robot_conn.get_status()
+        handler._send_json(api_success(status))
+    except Exception as e:
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_robot_send(handler):
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        command = data.get('command', '')
+        file_id = data.get('fileId', '')
+
+        if file_id and not command:
+            uploaded_files = os.listdir(OUTPUTS_DIR)
+            matched = [f for f in uploaded_files if f.startswith(file_id)]
+            if not matched:
+                handler._send_json(api_error('输出文件未找到', 404), 404)
+                return
+            file_path = os.path.join(OUTPUTS_DIR, matched[0])
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            if file_path.endswith('.gcode'):
+                lines = content.strip().split('\n')
+                result = robot_conn.send_gcode(lines)
+            else:
+                result = robot_conn.send_command(content)
+        elif command:
+            result = robot_conn.send_command(command, wait_response=True)
+        else:
+            handler._send_json(api_error('command or fileId is required', 400), 400)
+            return
+
+        if result['success']:
+            handler._send_json(api_success(result))
+        else:
+            handler._send_json(api_error(result.get('error', '发送失败'), 500), 500)
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
+
+
 routes = {
     '/api/health': {'handler': _handle_health, 'methods': ['GET']},
     '/api/homework/demo': {'handler': _handle_demo, 'methods': ['GET']},
@@ -674,6 +779,11 @@ routes = {
     '/api/homework/preview': {'handler': _handle_preview, 'methods': ['POST']},
     '/api/homework/analyze-image': {'handler': _handle_image_analyze, 'methods': ['POST']},
     '/api/llm/call': {'handler': _handle_llm_call, 'methods': ['POST']},
+    '/api/robot/ports': {'handler': _handle_robot_ports, 'methods': ['GET']},
+    '/api/robot/connect': {'handler': _handle_robot_connect, 'methods': ['POST']},
+    '/api/robot/disconnect': {'handler': _handle_robot_disconnect, 'methods': ['POST']},
+    '/api/robot/status': {'handler': _handle_robot_status, 'methods': ['GET']},
+    '/api/robot/send': {'handler': _handle_robot_send, 'methods': ['POST']},
 }
 
 

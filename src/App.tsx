@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useGenerateStore } from '@/stores/useGenerateStore'
 import { useConfigStore } from '@/stores/useConfigStore'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api'
 import {
   PenTool, Upload, Settings, Eye, Play, Download,
   Image as ImageIcon, X, ZoomIn, ZoomOut, Maximize2,
@@ -10,10 +11,8 @@ import {
   GripVertical, Type, Ruler, Bot, BrainCircuit,
   LayoutTemplate, SlidersHorizontal, Undo2,
   CheckCircle2, AlertCircle, Clock, Hash, MousePointer2,
+  Sparkles, RotateCcw, Usb, Wifi, WifiOff, RefreshCw, Send,
 } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
-
-// ============ Floating Panel System ============
 
 interface FloatingPanelProps {
   id: string
@@ -135,8 +134,6 @@ function FloatingPanel({
   )
 }
 
-// ============ Dockable Panel ============
-
 interface DockablePanelProps {
   side: 'left' | 'right'
   width: number
@@ -185,8 +182,6 @@ function DockablePanel({ side, width, onWidthChange, children }: DockablePanelPr
   )
 }
 
-// ============ Main App ============
-
 export default function App() {
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(280)
@@ -206,7 +201,6 @@ export default function App() {
 
   return (
     <div className="h-screen bg-zinc-950 text-zinc-200 flex flex-col overflow-hidden select-none">
-      {/* Header */}
       <header className="h-11 border-b border-zinc-800 bg-zinc-900 flex items-center px-3 gap-2 flex-shrink-0 z-40">
         <div className="flex items-center gap-2 mr-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600">
@@ -240,7 +234,6 @@ export default function App() {
 
         <div className="h-5 w-px bg-zinc-700 mx-1" />
 
-        {/* Floating panel toggles */}
         <button
           onClick={() => toggleFloating('upload')}
           className={cn(
@@ -294,7 +287,6 @@ export default function App() {
         </a>
       </header>
 
-      {/* Main workspace */}
       <div className="flex-1 flex overflow-hidden relative">
         {leftOpen && (
           <DockablePanel side="left" width={leftWidth} onWidthChange={setLeftWidth}>
@@ -312,11 +304,10 @@ export default function App() {
           </DockablePanel>
         )}
 
-        {/* Floating panels */}
         {floatingPanels.upload && (
           <FloatingPanel
             id="upload"
-            title="Document Upload"
+            title="文档上传"
             icon={<Upload className="h-3.5 w-3.5 text-blue-400" />}
             defaultPosition={{ x: 60, y: 60 }}
             defaultSize={{ width: 320, height: 400 }}
@@ -328,7 +319,7 @@ export default function App() {
         {floatingPanels.config && (
           <FloatingPanel
             id="config"
-            title="Configuration"
+            title="配置"
             icon={<SlidersHorizontal className="h-3.5 w-3.5 text-green-400" />}
             defaultPosition={{ x: 400, y: 60 }}
             defaultSize={{ width: 340, height: 500 }}
@@ -340,7 +331,7 @@ export default function App() {
         {floatingPanels.questions && (
           <FloatingPanel
             id="questions"
-            title="Questions"
+            title="题目"
             icon={<Hash className="h-3.5 w-3.5 text-purple-400" />}
             defaultPosition={{ x: 760, y: 60 }}
             defaultSize={{ width: 300, height: 400 }}
@@ -353,12 +344,11 @@ export default function App() {
 
       <StatusBar />
 
-      {/* Help modal */}
       {showHelp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">Help</h3>
+              <h3 className="text-lg font-bold text-white">帮助</h3>
               <button
                 onClick={() => setShowHelp(false)}
                 className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
@@ -367,11 +357,11 @@ export default function App() {
               </button>
             </div>
             <div className="space-y-3 text-sm text-zinc-400">
-              <p>Left/right panels can be resized and toggled</p>
-              <p>Click top buttons to open floating panels</p>
-              <p>Floating panels can be dragged, resized, and closed</p>
-              <p>Canvas supports zoom (Ctrl+wheel) and pan (Alt+drag)</p>
-              <p>All settings are saved automatically</p>
+              <p>左右面板可调整大小和开关</p>
+              <p>点击顶部按钮打开浮动面板</p>
+              <p>浮动面板可拖拽、调整大小和关闭</p>
+              <p>画布支持缩放（Ctrl+滚轮）和平移（Alt+拖拽）</p>
+              <p>所有设置自动保存</p>
             </div>
           </div>
         </div>
@@ -380,50 +370,133 @@ export default function App() {
   )
 }
 
-// ============ Global Actions ============
-
 function GlobalActions() {
-  const { fileId, isGenerating } = useGenerateStore()
-  const [isGen, setIsGen] = useState(false)
+  const { fileId, isGenerating, isPreviewing, isAgentWorking, error, svgContent, previewSvg, robotConnected, isRobotSending } = useGenerateStore()
+  const [isExporting, setIsExporting] = useState(false)
 
   const handleGenerate = async () => {
-    if (!fileId || isGen) return
-    setIsGen(true)
-    setTimeout(() => setIsGen(false), 2000)
+    if (!fileId || isGenerating) return
+    const config = useConfigStore.getState().getConfig()
+    await useGenerateStore.getState().startGenerate({
+      fileId,
+      format: (config.outputFormat as string) || 'kuixiang',
+      seed: (config.seed as number | null) ?? null,
+      config,
+    })
   }
+
+  const handleExport = async () => {
+    if (!fileId || isExporting) return
+    setIsExporting(true)
+    try {
+      const result = await apiClient.download(fileId)
+      if (result.success && result.data) {
+        const data = result.data as any
+        if (data.downloadUrl) {
+          const a = document.createElement('a')
+          a.href = data.downloadUrl
+          a.download = `output-${fileId}`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        } else if (data.fileData) {
+          const byteChars = atob(data.fileData)
+          const byteNums = new Array(byteChars.length)
+          for (let i = 0; i < byteChars.length; i++) {
+            byteNums[i] = byteChars.charCodeAt(i)
+          }
+          const byteArray = new Uint8Array(byteNums)
+          const blob = new Blob([byteArray])
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = data.fileName || `output-${fileId}`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }
+      }
+    } catch {
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleDemo = async () => {
+    if (isGenerating) return
+    await useGenerateStore.getState().startDemo()
+  }
+
+  const isWorking = isGenerating || isPreviewing || isAgentWorking
 
   return (
     <div className="flex items-center gap-1.5">
       <button
-        onClick={handleGenerate}
-        disabled={isGen || !fileId}
+        onClick={handleDemo}
+        disabled={isWorking}
         className={cn(
           'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
-          fileId && !isGen
+          !isWorking
+            ? 'bg-purple-600 text-white hover:bg-purple-500'
+            : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">演示</span>
+      </button>
+      <button
+        onClick={handleGenerate}
+        disabled={isGenerating || !fileId}
+        className={cn(
+          'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
+          fileId && !isGenerating
             ? 'bg-blue-600 text-white hover:bg-blue-500'
             : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
         )}
       >
-        {isGen ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-        <span className="hidden sm:inline">{isGen ? 'Generating...' : 'Generate'}</span>
+        {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+        <span className="hidden sm:inline">{isGenerating ? '生成中...' : '生成'}</span>
       </button>
-      <button className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors">
-        <Download className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Export</span>
+      <button
+        onClick={handleExport}
+        disabled={isExporting || !(svgContent || previewSvg) || !fileId}
+        className={cn(
+          'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+          (svgContent || previewSvg) && !isExporting && fileId
+            ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+            : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+        )}
+      >
+        {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+        <span className="hidden sm:inline">{isExporting ? '导出中...' : '导出'}</span>
       </button>
+      {(svgContent || previewSvg) && robotConnected && (
+        <button
+          onClick={() => useGenerateStore.getState().sendToRobot({ fileId: fileId || '' })}
+          disabled={isRobotSending || !fileId}
+          className={cn(
+            'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+            fileId && robotConnected && !isRobotSending
+              ? 'bg-green-600/20 text-green-400 hover:bg-green-600/30 border border-green-500/30'
+              : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+          )}
+        >
+          {isRobotSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{isRobotSending ? '发送中...' : '发送'}</span>
+        </button>
+      )}
     </div>
   )
 }
-
-// ============ Left Sidebar ============
 
 function LeftSidebar() {
   const [activeTab, setActiveTab] = useState<'upload' | 'config' | 'preview'>('upload')
 
   const tabs = [
-    { id: 'upload' as const, icon: Upload, label: 'Upload', color: 'text-blue-400' },
-    { id: 'config' as const, icon: SlidersHorizontal, label: 'Config', color: 'text-green-400' },
-    { id: 'preview' as const, icon: Eye, label: 'Preview', color: 'text-purple-400' },
+    { id: 'upload' as const, icon: Upload, label: '上传', color: 'text-blue-400' },
+    { id: 'config' as const, icon: SlidersHorizontal, label: '配置', color: 'text-green-400' },
+    { id: 'preview' as const, icon: Eye, label: '预览', color: 'text-purple-400' },
   ]
 
   return (
@@ -455,15 +528,13 @@ function LeftSidebar() {
   )
 }
 
-// ============ Right Sidebar ============
-
 function RightSidebar() {
   return (
     <>
       <div className="p-3 border-b border-zinc-800">
         <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
           <Clock className="h-3 w-3" />
-          Status
+          状态
         </h3>
       </div>
       <div className="flex-1 overflow-auto">
@@ -473,49 +544,19 @@ function RightSidebar() {
   )
 }
 
-// ============ Upload Panel ============
-
 function UploadPanel() {
-  const { setUploading, setUploadResult, setQuestions, fileId } = useGenerateStore()
+  const { fileId, isUploading, error } = useGenerateStore()
   const [uploadedName, setUploadedName] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const paperTemplate = useConfigStore((s) => s.paperTemplate)
 
-  const uploadFile = async (file: File) => {
+  const handleUpload = async (file: File) => {
     if (!file.name.endsWith('.docx')) {
-      setError('Only .docx files supported')
+      useGenerateStore.setState({ error: '仅支持 .docx 格式文件' })
       return
     }
-    setError(null)
-    setIsUploading(true)
-    setUploading(true)
     setUploadedName(file.name)
-
-    const formData = new FormData()
-    formData.append('file', file)
-
-    try {
-      const res = await apiFetch('/api/homework/upload', {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-
-      if (data.success) {
-        setUploadResult(data.fileId, data.filePath ?? '')
-        setQuestions(data.questions ?? [])
-      } else {
-        setError(data.error || 'Upload failed')
-        setUploadedName(null)
-      }
-    } catch {
-      setError('Network error')
-      setUploadedName(null)
-    } finally {
-      setIsUploading(false)
-      setUploading(false)
-    }
+    await useGenerateStore.getState().uploadFile(file)
   }
 
   return (
@@ -524,24 +565,24 @@ function UploadPanel() {
         onClick={() => inputRef.current?.click()}
         className={cn(
           'flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-8 cursor-pointer transition-all hover:scale-[1.02]',
-          uploadedName
+          fileId
             ? 'border-green-500/50 bg-green-500/5'
             : 'border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/30'
         )}
       >
-        <input ref={inputRef} type="file" accept=".docx" onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0])} className="hidden" />
+        <input ref={inputRef} type="file" accept=".docx" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} className="hidden" />
         {isUploading ? (
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-        ) : uploadedName ? (
+        ) : fileId ? (
           <>
             <FileText className="h-10 w-10 text-green-400" />
-            <span className="text-sm text-zinc-300 text-center truncate w-full font-medium">{uploadedName}</span>
-            <span className="text-[10px] text-green-500/70">Click to change</span>
+            <span className="text-sm text-zinc-300 text-center truncate w-full font-medium">{uploadedName || '文档已加载'}</span>
+            <span className="text-[10px] text-green-500/70">点击更换</span>
           </>
         ) : (
           <>
             <Upload className="h-10 w-10 text-zinc-600" />
-            <span className="text-xs text-zinc-500">Click or drag .docx file</span>
+            <span className="text-xs text-zinc-500">点击上传 .docx 文件</span>
           </>
         )}
       </div>
@@ -549,29 +590,41 @@ function UploadPanel() {
       {error && (
         <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
           <AlertCircle className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
-          <p className="text-xs text-red-400">{error}</p>
+          <p className="text-xs text-red-400 flex-1">{error}</p>
+          <button
+            onClick={() => useGenerateStore.getState().clearError()}
+            className="text-zinc-500 hover:text-zinc-300"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </div>
       )}
 
       {fileId && (
         <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-3 py-2 flex items-center gap-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-green-400 flex-shrink-0" />
-          <p className="text-xs text-green-400">Document loaded</p>
+          <p className="text-xs text-green-400">文档已加载</p>
         </div>
       )}
 
       <div className="space-y-2">
-        <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Paper Templates</label>
+        <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">纸张模板</label>
         <div className="grid grid-cols-2 gap-2">
           {[
-            { id: 'blank', label: 'Blank', icon: FileText },
-            { id: 'lined', label: 'Lined', icon: Ruler },
-            { id: 'grid', label: 'Grid', icon: LayoutTemplate },
-            { id: 'homework', label: 'Homework', icon: Type },
+            { id: 'blank', label: '空白', icon: FileText },
+            { id: 'lined', label: '横线', icon: Ruler },
+            { id: 'grid', label: '网格', icon: LayoutTemplate },
+            { id: 'homework', label: '作业', icon: Type },
           ].map((t) => (
             <button
               key={t.id}
-              className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-800/30 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
+              onClick={() => useConfigStore.getState().setPaperTemplate(t.id)}
+              className={cn(
+                'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition-colors',
+                paperTemplate === t.id
+                  ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
+                  : 'border-zinc-800 bg-zinc-800/30 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'
+              )}
             >
               <t.icon className="h-3.5 w-3.5" />
               {t.label}
@@ -582,8 +635,6 @@ function UploadPanel() {
     </div>
   )
 }
-
-// ============ Config Panel with Sliders ============
 
 function ConfigPanel() {
   const config = useConfigStore()
@@ -632,70 +683,70 @@ function ConfigPanel() {
   const sections = [
     {
       id: 'paper',
-      label: 'Paper & Margins',
+      label: '纸张与边距',
       icon: Ruler,
       content: (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <SliderField label="Width" value={config.paperWidth} min={100} max={500} step={1} onChange={config.setPaperWidth} unit="mm" />
-            <SliderField label="Height" value={config.paperHeight} min={100} max={500} step={1} onChange={config.setPaperHeight} unit="mm" />
+            <SliderField label="宽度" value={config.paperWidth} min={100} max={500} step={1} onChange={config.setPaperWidth} unit="mm" />
+            <SliderField label="高度" value={config.paperHeight} min={100} max={500} step={1} onChange={config.setPaperHeight} unit="mm" />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <SliderField label="Top Margin" value={config.marginTop} min={0} max={50} step={1} onChange={config.setMarginTop} unit="mm" />
-            <SliderField label="Bottom Margin" value={config.marginBottom} min={0} max={50} step={1} onChange={config.setMarginBottom} unit="mm" />
-            <SliderField label="Left Margin" value={config.marginLeft} min={0} max={50} step={1} onChange={config.setMarginLeft} unit="mm" />
-            <SliderField label="Right Margin" value={config.marginRight} min={0} max={50} step={1} onChange={config.setMarginRight} unit="mm" />
+            <SliderField label="上边距" value={config.marginTop} min={0} max={50} step={1} onChange={config.setMarginTop} unit="mm" />
+            <SliderField label="下边距" value={config.marginBottom} min={0} max={50} step={1} onChange={config.setMarginBottom} unit="mm" />
+            <SliderField label="左边距" value={config.marginLeft} min={0} max={50} step={1} onChange={config.setMarginLeft} unit="mm" />
+            <SliderField label="右边距" value={config.marginRight} min={0} max={50} step={1} onChange={config.setMarginRight} unit="mm" />
           </div>
         </div>
       ),
     },
     {
       id: 'font',
-      label: 'Typography',
+      label: '字体排版',
       icon: Type,
       content: (
         <div className="space-y-3">
-          <SliderField label="Title Size" value={config.fontSizeTitle} min={2} max={10} step={0.1} onChange={config.setFontSizeTitle} unit="mm" />
-          <SliderField label="Body Size" value={config.fontSizeBody} min={2} max={8} step={0.1} onChange={config.setFontSizeBody} unit="mm" />
-          <SliderField label="Line Spacing" value={config.lineSpacing} min={3} max={12} step={0.1} onChange={config.setLineSpacing} unit="mm" />
-          <SliderField label="Char Spacing" value={config.charSpacing} min={0.5} max={3} step={0.1} onChange={config.setCharSpacing} unit="mm" />
-          <SliderField label="Slant" value={config.slant} min={-15} max={15} step={1} onChange={config.setSlant} unit="deg" />
+          <SliderField label="标题字号" value={config.fontSizeTitle} min={2} max={10} step={0.1} onChange={config.setFontSizeTitle} unit="mm" />
+          <SliderField label="正文字号" value={config.fontSizeBody} min={2} max={8} step={0.1} onChange={config.setFontSizeBody} unit="mm" />
+          <SliderField label="行距" value={config.lineSpacing} min={3} max={12} step={0.1} onChange={config.setLineSpacing} unit="mm" />
+          <SliderField label="字距" value={config.charSpacing} min={0.5} max={3} step={0.1} onChange={config.setCharSpacing} unit="mm" />
+          <SliderField label="倾斜" value={config.slant} min={-15} max={15} step={1} onChange={config.setSlant} unit="deg" />
         </div>
       ),
     },
     {
       id: 'handdrawn',
-      label: 'Handwriting Effect',
+      label: '手写效果',
       icon: PenTool,
       content: (
         <div className="space-y-3">
-          <SliderField label="Wobble" value={config.handDrawnAmplitude} min={0} max={2} step={0.05} onChange={config.setHandDrawnAmplitude} />
-          <SliderField label="Corner Exaggeration" value={config.handDrawnCornerExaggeration} min={0} max={5} step={0.1} onChange={config.setHandDrawnCornerExaggeration} />
-          <SliderField label="Baseline Wobble" value={config.baselineWobble} min={0} max={2} step={0.1} onChange={config.setBaselineWobble} unit="mm" />
+          <SliderField label="抖动幅度" value={config.handDrawnAmplitude} min={0} max={2} step={0.05} onChange={config.setHandDrawnAmplitude} />
+          <SliderField label="转角夸张" value={config.handDrawnCornerExaggeration} min={0} max={5} step={0.1} onChange={config.setHandDrawnCornerExaggeration} />
+          <SliderField label="基线抖动" value={config.baselineWobble} min={0} max={2} step={0.1} onChange={config.setBaselineWobble} unit="mm" />
         </div>
       ),
     },
     {
       id: 'robot',
-      label: 'Robot Settings',
+      label: '机器人设置',
       icon: Bot,
       content: (
         <div className="space-y-3">
-          <SliderField label="Pen Up Height" value={config.penUpHeight} min={0} max={20} step={1} onChange={config.setPenUpHeight} unit="mm" />
-          <SliderField label="Pen Down Height" value={config.penDownHeight} min={-2} max={5} step={0.5} onChange={config.setPenDownHeight} unit="mm" />
-          <SliderField label="Travel Speed" value={config.travelSpeed} min={10} max={200} step={5} onChange={config.setTravelSpeed} unit="mm/s" />
-          <SliderField label="Draw Speed" value={config.drawSpeed} min={5} max={100} step={5} onChange={config.setDrawSpeed} unit="mm/s" />
+          <SliderField label="抬笔高度" value={config.penUpHeight} min={0} max={20} step={1} onChange={config.setPenUpHeight} unit="mm" />
+          <SliderField label="落笔高度" value={config.penDownHeight} min={-2} max={5} step={0.5} onChange={config.setPenDownHeight} unit="mm" />
+          <SliderField label="移动速度" value={config.travelSpeed} min={10} max={200} step={5} onChange={config.setTravelSpeed} unit="mm/s" />
+          <SliderField label="绘制速度" value={config.drawSpeed} min={5} max={100} step={5} onChange={config.setDrawSpeed} unit="mm/s" />
         </div>
       ),
     },
     {
       id: 'llm',
-      label: 'AI Model',
+      label: 'AI 模型',
       icon: BrainCircuit,
       content: (
         <div className="space-y-2.5">
           <div className="space-y-1">
-            <label className="text-[10px] text-zinc-500">API URL</label>
+            <label className="text-[10px] text-zinc-500">API 地址</label>
             <input
               type="text"
               value={config.llmBaseUrl}
@@ -705,7 +756,7 @@ function ConfigPanel() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] text-zinc-500">API Key</label>
+            <label className="text-[10px] text-zinc-500">API 密钥</label>
             <input
               type="password"
               value={config.llmApiKey}
@@ -715,7 +766,7 @@ function ConfigPanel() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] text-zinc-500">Model</label>
+            <label className="text-[10px] text-zinc-500">模型</label>
             <input
               type="text"
               value={config.llmModel}
@@ -725,7 +776,7 @@ function ConfigPanel() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] text-zinc-500">Output Format</label>
+            <label className="text-[10px] text-zinc-500">输出格式</label>
             <select
               value={config.outputFormat}
               onChange={(e) => config.setField('outputFormat', e.target.value)}
@@ -744,13 +795,13 @@ function ConfigPanel() {
   return (
     <div className="p-3 space-y-1.5">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Settings</span>
+        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">设置</span>
         <button
           onClick={() => config.resetToDefaults()}
           className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
         >
           <Undo2 className="h-3 w-3" />
-          Reset
+          重置
         </button>
       </div>
       {sections.map((section) => (
@@ -776,51 +827,134 @@ function ConfigPanel() {
   )
 }
 
-// ============ Preview Panel ============
-
 function PreviewPanel() {
-  const { fileId } = useGenerateStore()
-  const [isGenerating, setIsGenerating] = useState(false)
+  const { fileId, isPreviewing, isAgentWorking, agentProgress, error } = useGenerateStore()
 
-  const handleGenerate = async () => {
+  const handlePreview = async () => {
+    if (!fileId || isPreviewing) return
+    const config = useConfigStore.getState().getConfig()
+    await useGenerateStore.getState().startPreview({
+      fileId,
+      config,
+    })
+  }
+
+  const handleExport = async () => {
     if (!fileId) return
-    setIsGenerating(true)
-    setTimeout(() => setIsGenerating(false), 2000)
+    const result = await apiClient.download(fileId)
+    if (result.success && result.data) {
+      const data = result.data as any
+      if (data.downloadUrl) {
+        const a = document.createElement('a')
+        a.href = data.downloadUrl
+        a.download = `output-${fileId}`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } else if (data.fileData) {
+        const byteChars = atob(data.fileData)
+        const byteNums = new Array(byteChars.length)
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNums[i] = byteChars.charCodeAt(i)
+        }
+        const byteArray = new Uint8Array(byteNums)
+        const blob = new Blob([byteArray])
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = data.fileName || `output-${fileId}`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+    }
   }
 
   return (
     <div className="p-4 space-y-3">
       <button
-        onClick={handleGenerate}
-        disabled={isGenerating || !fileId}
+        onClick={handlePreview}
+        disabled={isPreviewing || !fileId}
         className={cn(
           'w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-semibold transition-colors',
-          fileId && !isGenerating
+          fileId && !isPreviewing
             ? 'bg-blue-600 text-white hover:bg-blue-500'
             : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
         )}
       >
-        {isGenerating ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Play className="h-3.5 w-3.5" />
-        )}
-        {isGenerating ? 'Generating...' : 'Generate Preview'}
+        {isPreviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+        {isPreviewing ? '正在生成预览...' : '生成预览'}
       </button>
 
-      <button className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-800 py-2.5 text-xs font-medium text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors">
+      <button
+        onClick={handleExport}
+        disabled={!fileId}
+        className={cn(
+          'w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-medium transition-colors',
+          fileId
+            ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+            : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+        )}
+      >
         <Download className="h-3.5 w-3.5" />
-        Export Commands
+        导出命令
       </button>
+
+      {isAgentWorking && agentProgress.length > 0 && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
+          <h4 className="text-[10px] font-semibold text-zinc-500 uppercase flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+            AI 代理进度
+          </h4>
+          <div className="max-h-32 overflow-auto space-y-1">
+            {agentProgress.slice(-8).map((evt, i) => (
+              <div key={i} className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                <span className="text-zinc-600 font-mono">{evt.stage}</span>
+                <span className="flex-1 truncate">{evt.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
+          <AlertCircle className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+          <p className="text-xs text-red-400 flex-1">{error}</p>
+        </div>
+      )}
 
       <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
-        <h4 className="text-[10px] font-semibold text-zinc-500 uppercase">Quick Actions</h4>
+        <h4 className="text-[10px] font-semibold text-zinc-500 uppercase">快捷操作</h4>
         <div className="grid grid-cols-2 gap-2">
-          <button className="rounded bg-zinc-800 px-2 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors">
-            Single Question
+          <button
+            onClick={handlePreview}
+            disabled={!fileId || isPreviewing}
+            className={cn(
+              'rounded px-2 py-1.5 text-[10px] transition-colors',
+              fileId && !isPreviewing
+                ? 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+                : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            )}
+          >
+            单题预览
           </button>
-          <button className="rounded bg-zinc-800 px-2 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors">
-            Full Paper
+          <button
+            onClick={async () => {
+              if (!fileId || isPreviewing) return
+              const config = useConfigStore.getState().getConfig()
+              await useGenerateStore.getState().startPreview({ fileId, config })
+            }}
+            disabled={!fileId || isPreviewing}
+            className={cn(
+              'rounded px-2 py-1.5 text-[10px] transition-colors',
+              fileId && !isPreviewing
+                ? 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+                : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            )}
+          >
+            整卷预览
           </button>
         </div>
       </div>
@@ -828,15 +962,13 @@ function PreviewPanel() {
   )
 }
 
-// ============ Questions Panel ============
-
 function QuestionsPanel() {
   const { questions, fileId } = useGenerateStore()
 
   if (!fileId) {
     return (
       <div className="p-4 text-center">
-        <p className="text-xs text-zinc-500">Upload a document first</p>
+        <p className="text-xs text-zinc-500">请先上传文档</p>
       </div>
     )
   }
@@ -844,14 +976,14 @@ function QuestionsPanel() {
   if (questions.length === 0) {
     return (
       <div className="p-4 text-center">
-        <p className="text-xs text-zinc-500">No questions found</p>
+        <p className="text-xs text-zinc-500">未找到题目</p>
       </div>
     )
   }
 
   return (
     <div className="p-3 space-y-1.5">
-      <div className="text-[10px] text-zinc-500 mb-2">{questions.length} questions</div>
+      <div className="text-[10px] text-zinc-500 mb-2">{questions.length} 道题目</div>
       {questions.map((q, i) => (
         <button
           key={i}
@@ -878,15 +1010,16 @@ function QuestionsPanel() {
   )
 }
 
-// ============ Canvas Area with Pan + Zoom ============
-
 function CanvasArea() {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef({ x: 0, y: 0, px: 0, py: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-  const { svgContent } = useGenerateStore()
+  const { svgContent, previewSvg, isGenerating, isPreviewing, isAgentWorking, agentProgress } = useGenerateStore()
+
+  const displaySvg = svgContent || previewSvg
+  const isWorking = isGenerating || isPreviewing || isAgentWorking
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -930,7 +1063,6 @@ function CanvasArea() {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* Canvas toolbar */}
       <div className="h-9 border-b border-zinc-800 bg-zinc-900 flex items-center px-3 gap-1 z-10">
         <button
           onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}
@@ -959,23 +1091,29 @@ function CanvasArea() {
 
         <span className="text-[10px] text-zinc-600 flex items-center gap-1">
           <MousePointer2 className="h-3 w-3" />
-          Alt+Drag to pan
+          Alt+拖拽 平移
         </span>
         <span className="text-[10px] text-zinc-600 flex items-center gap-1 ml-2">
           <ZoomIn className="h-3 w-3" />
-          Ctrl+Wheel to zoom
+          Ctrl+滚轮 缩放
         </span>
 
         <div className="flex-1" />
 
-        <span className="text-[10px] text-zinc-600">
+        {isWorking && (
+          <span className="text-[10px] text-blue-400 flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {isGenerating ? '生成中' : isPreviewing ? '预览中' : 'AI代理工作中'}
+            {agentProgress.length > 0 && ` - ${agentProgress[agentProgress.length - 1].message}`}
+          </span>
+        )}
+
+        <span className="text-[10px] text-zinc-600 ml-2">
           X: {Math.round(pan.x)} Y: {Math.round(pan.y)}
         </span>
       </div>
 
-      {/* Canvas content */}
       <div className="flex-1 overflow-hidden relative bg-zinc-950">
-        {/* Grid background */}
         <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
@@ -989,9 +1127,9 @@ function CanvasArea() {
         />
 
         <div className="absolute inset-0 flex items-center justify-center">
-          {svgContent ? (
+          {displaySvg ? (
             <div
-              dangerouslySetInnerHTML={{ __html: svgContent }}
+              dangerouslySetInnerHTML={{ __html: displaySvg }}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: 'center center',
@@ -1003,8 +1141,21 @@ function CanvasArea() {
               <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 mx-auto">
                 <ImageIcon className="h-10 w-10 text-zinc-700" />
               </div>
-              <p className="text-sm text-zinc-600">Upload document to preview</p>
-              <p className="text-xs text-zinc-700">Supports .docx format</p>
+              <p className="text-sm text-zinc-600">上传文档以预览</p>
+              <p className="text-xs text-zinc-700">支持 .docx 格式</p>
+              <button
+                onClick={() => useGenerateStore.getState().startDemo()}
+                disabled={isWorking}
+                className={cn(
+                  'mt-2 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-colors',
+                  !isWorking
+                    ? 'bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 border border-purple-500/30'
+                    : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                )}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                试试演示
+              </button>
             </div>
           )}
         </div>
@@ -1013,29 +1164,40 @@ function CanvasArea() {
   )
 }
 
-// ============ Status Panel ============
-
 function StatusPanel() {
-  const { fileId, isGenerating, questions, svgContent, strokeCount, estimatedTime } = useGenerateStore()
+  const { fileId, isGenerating, isPreviewing, isAgentWorking, questions, svgContent, previewSvg, strokeCount, estimatedTime, error, agentProgress, robotConnected, robotPort, robotPorts, isRobotConnecting, isRobotSending } = useGenerateStore()
 
   return (
     <div className="p-3 space-y-3">
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
+          <AlertCircle className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+          <p className="text-xs text-red-400 flex-1">{error}</p>
+          <button
+            onClick={() => useGenerateStore.getState().clearError()}
+            className="text-zinc-500 hover:text-zinc-300"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       <div className="space-y-2">
         <h4 className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1.5">
           <FileText className="h-3 w-3" />
-          Document
+          文档
         </h4>
         <div className="rounded-lg bg-zinc-800/50 border border-zinc-800 px-3 py-2">
           <p className="text-xs text-zinc-400">
             {fileId ? (
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3 w-3 text-green-400" />
-                Loaded ({questions.length} questions)
+                已加载 ({questions.length} 道题目)
               </span>
             ) : (
               <span className="flex items-center gap-1.5">
                 <AlertCircle className="h-3 w-3 text-zinc-500" />
-                Not uploaded
+                未上传
               </span>
             )}
           </p>
@@ -1052,30 +1214,66 @@ function StatusPanel() {
             {isGenerating ? (
               <span className="flex items-center gap-1.5">
                 <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-                Generating...
+                生成中...
+              </span>
+            ) : isPreviewing ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin text-purple-400" />
+                预览中...
+              </span>
+            ) : isAgentWorking ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin text-yellow-400" />
+                AI代理工作中...
               </span>
             ) : (
-              'Ready'
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3 w-3 text-green-400" />
+                就绪
+              </span>
             )}
           </p>
         </div>
       </div>
 
-      {svgContent && (
+      {isAgentWorking && agentProgress.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1.5">
+            <Bot className="h-3 w-3" />
+            AI 代理进度
+          </h4>
+          <div className="rounded-lg bg-zinc-800/50 border border-zinc-800 px-3 py-2 max-h-32 overflow-auto space-y-1">
+            {agentProgress.slice(-10).map((evt, i) => (
+              <div key={i} className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                <span className="text-zinc-600 font-mono w-16 flex-shrink-0">{evt.stage}</span>
+                <span className="flex-1 truncate">{evt.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(svgContent || previewSvg) && (
         <div className="space-y-2">
           <h4 className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1.5">
             <PenTool className="h-3 w-3" />
-            Output
+            输出
           </h4>
           <div className="rounded-lg bg-zinc-800/50 border border-zinc-800 px-3 py-2 space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-zinc-500">Strokes</span>
+              <span className="text-zinc-500">笔画数</span>
               <span className="text-zinc-300 font-mono">{strokeCount}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-zinc-500">Est. Time</span>
+              <span className="text-zinc-500">预计时间</span>
               <span className="text-zinc-300 font-mono">{estimatedTime}s</span>
             </div>
+            {previewSvg && !svgContent && (
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500">来源</span>
+                <span className="text-purple-400 font-mono text-[10px]">预览</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1084,7 +1282,7 @@ function StatusPanel() {
         <div className="space-y-2">
           <h4 className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1.5">
             <Hash className="h-3 w-3" />
-            Questions
+            题目
           </h4>
           <div className="space-y-1 max-h-40 overflow-auto">
             {questions.slice(0, 5).map((q, i) => (
@@ -1103,31 +1301,109 @@ function StatusPanel() {
           </div>
         </div>
       )}
+
+      <div className="space-y-2">
+        <h4 className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1.5">
+          <Bot className="h-3 w-3" />
+          机器人
+        </h4>
+        <div className="rounded-lg bg-zinc-800/50 border border-zinc-800 px-3 py-2 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-400 flex items-center gap-1.5">
+              {robotConnected ? (
+                <Wifi className="h-3 w-3 text-green-400" />
+              ) : (
+                <WifiOff className="h-3 w-3 text-zinc-500" />
+              )}
+              {robotConnected ? '已连接' : '未连接'}
+            </span>
+            {robotPort && (
+              <span className="text-[10px] text-zinc-500 font-mono">{robotPort}</span>
+            )}
+          </div>
+          {robotConnected ? (
+            <button
+              onClick={() => useGenerateStore.getState().disconnectRobot()}
+              className="w-full flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[10px] bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+            >
+              <WifiOff className="h-3 w-3" />
+              断开连接
+            </button>
+          ) : (
+            <button
+              onClick={() => useGenerateStore.getState().refreshRobotPorts()}
+              className="w-full flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[10px] bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700 transition-colors"
+            >
+              <RefreshCw className={cn("h-3 w-3", isRobotConnecting && "animate-spin")} />
+              扫描串口
+            </button>
+          )}
+          {robotPorts.length > 0 && !robotConnected && (
+            <div className="space-y-1 max-h-24 overflow-auto">
+              {robotPorts.map((p) => (
+                <button
+                  key={p.port}
+                  onClick={() => useGenerateStore.getState().connectRobot(p.port)}
+                  disabled={isRobotConnecting}
+                  className="w-full text-left flex items-center gap-2 rounded bg-zinc-800/50 px-2 py-1.5 hover:bg-zinc-700/50 transition-colors group"
+                >
+                  <Usb className="h-3 w-3 text-zinc-500 group-hover:text-blue-400" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-zinc-300 truncate">{p.port}</div>
+                    <div className="text-[9px] text-zinc-600 truncate">{p.description}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {isRobotConnecting && (
+            <div className="flex items-center justify-center gap-1.5 text-[10px] text-blue-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              正在连接...
+            </div>
+          )}
+          {isRobotSending && (
+            <div className="flex items-center justify-center gap-1.5 text-[10px] text-yellow-400">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              正在发送指令...
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-// ============ Status Bar ============
-
 function StatusBar() {
-  const { isGenerating, isUploading } = useGenerateStore()
+  const { isGenerating, isUploading, isPreviewing, isAgentWorking, error, robotConnected, robotPort } = useGenerateStore()
+  const llmModel = useConfigStore((s) => s.llmModel)
+
+  const isActive = isGenerating || isUploading || isPreviewing || isAgentWorking
 
   return (
     <footer className="h-7 border-t border-zinc-800 bg-zinc-900 flex items-center px-3 gap-4 text-[11px] text-zinc-500 flex-shrink-0 z-40">
-      <span className="font-semibold text-zinc-400">AI Writing Robot</span>
+      <span className="font-semibold text-zinc-400">AI写字机器人</span>
       <span className="text-zinc-700">|</span>
       <span className={cn(
         'flex items-center gap-1',
-        isGenerating ? 'text-blue-400' : isUploading ? 'text-yellow-400' : 'text-green-400'
+        error ? 'text-red-400' : isGenerating ? 'text-blue-400' : isPreviewing ? 'text-purple-400' : isUploading ? 'text-yellow-400' : isAgentWorking ? 'text-yellow-400' : 'text-green-400'
       )}>
         <span className={cn(
           'h-1.5 w-1.5 rounded-full',
-          isGenerating ? 'bg-blue-400 animate-pulse' : isUploading ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
+          error ? 'bg-red-400' : isActive ? 'bg-current animate-pulse' : 'bg-green-400'
         )} />
-        {isGenerating ? 'Generating' : isUploading ? 'Uploading' : 'Ready'}
+        {error ? '错误' : isGenerating ? '生成中' : isPreviewing ? '预览中' : isUploading ? '上传中' : isAgentWorking ? 'AI代理工作中' : '就绪'}
       </span>
+      <span className={cn(
+        'flex items-center gap-1',
+        robotConnected ? 'text-green-400' : 'text-zinc-600'
+      )}>
+        {robotConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+        {robotConnected ? robotPort : '未连接'}
+      </span>
+      <span className="text-zinc-700">|</span>
       <div className="flex-1" />
-      <span>DeepSeek V3</span>
+      <span>{llmModel || '未配置'}</span>
       <span className="text-zinc-700">|</span>
       <span>v1.0.0</span>
     </footer>

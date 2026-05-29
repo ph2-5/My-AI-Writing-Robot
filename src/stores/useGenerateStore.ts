@@ -8,6 +8,12 @@ interface Question {
   requirements: string[]
 }
 
+interface SerialPort {
+  port: string
+  description: string
+  hwid: string
+}
+
 interface GenerateState {
   fileId: string | null
   filePath: string | null
@@ -25,6 +31,12 @@ interface GenerateState {
   isPreviewing: boolean
   agentProgress: Array<{ stage: string; message: string; data?: Record<string, unknown>; timestamp: number }>
   isAgentWorking: boolean
+  robotConnected: boolean
+  robotPort: string | null
+  robotBaudrate: number
+  robotPorts: SerialPort[]
+  isRobotConnecting: boolean
+  isRobotSending: boolean
 
   setUploadResult: (fileId: string, filePath: string) => void
   setGenerateResult: (result: {
@@ -57,6 +69,11 @@ interface GenerateState {
   setPreviewSvg: (svg: string) => void
   setQuestionPlans: (plans: any[]) => void
   setQuestions: (questions: Question[]) => void
+  refreshRobotPorts: () => Promise<void>
+  connectRobot: (port: string, baudrate?: number) => Promise<void>
+  disconnectRobot: () => Promise<void>
+  refreshRobotStatus: () => Promise<void>
+  sendToRobot: (params: { command?: string; fileId?: string }) => Promise<void>
 }
 
 const initialState = {
@@ -76,6 +93,12 @@ const initialState = {
   isPreviewing: false as boolean,
   agentProgress: [] as Array<{ stage: string; message: string; data?: Record<string, unknown>; timestamp: number }>,
   isAgentWorking: false as boolean,
+  robotConnected: false as boolean,
+  robotPort: null as string | null,
+  robotBaudrate: 115200 as number,
+  robotPorts: [] as SerialPort[],
+  isRobotConnecting: false as boolean,
+  isRobotSending: false as boolean,
 }
 
 export const useGenerateStore = create<GenerateState>((set) => ({
@@ -211,6 +234,7 @@ export const useGenerateStore = create<GenerateState>((set) => ({
           previewSvg: data.previewSvg ?? '',
           questionPlans: data.questionPlans ?? [],
           previewPageCount: data.pageCount ?? 1,
+          questions: data.questions ?? [],
         })
       } else {
         set({ error: result.error || '预览失败' })
@@ -219,6 +243,70 @@ export const useGenerateStore = create<GenerateState>((set) => ({
       set({ error: err.message || '预览异常' })
     } finally {
       set({ isPreviewing: false, isAgentWorking: false })
+    }
+  },
+
+  refreshRobotPorts: async () => {
+    try {
+      const result = await apiClient.robotListPorts()
+      if (result.success && result.data) {
+        const data = result.data as any
+        set({ robotPorts: data.ports || [] })
+      }
+    } catch {}
+  },
+
+  connectRobot: async (port, baudrate = 115200) => {
+    set({ isRobotConnecting: true, error: null })
+    try {
+      const result = await apiClient.robotConnect(port, baudrate)
+      if (result.success && result.data) {
+        const data = result.data as any
+        set({ robotConnected: true, robotPort: data.port || port, robotBaudrate: baudrate })
+      } else {
+        set({ error: result.error || '机器人连接失败', robotConnected: false })
+      }
+    } catch (err: any) {
+      set({ error: err.message || '机器人连接异常', robotConnected: false })
+    } finally {
+      set({ isRobotConnecting: false })
+    }
+  },
+
+  disconnectRobot: async () => {
+    try {
+      await apiClient.robotDisconnect()
+      set({ robotConnected: false, robotPort: null })
+    } catch {
+      set({ robotConnected: false, robotPort: null })
+    }
+  },
+
+  refreshRobotStatus: async () => {
+    try {
+      const result = await apiClient.robotStatus()
+      if (result.success && result.data) {
+        const data = result.data as any
+        set({
+          robotConnected: data.connected || false,
+          robotPort: data.port || null,
+          robotBaudrate: data.baudrate || 115200,
+        })
+      }
+    } catch {}
+  },
+
+  sendToRobot: async (params) => {
+    set({ isRobotSending: true, error: null })
+    try {
+      const result = await apiClient.robotSend(params)
+      if (!result.success) {
+        set({ error: result.error || '发送指令失败' })
+      }
+    } catch (err: any) {
+      set({ error: err.message || '发送指令异常' })
+    } finally {
+      set({ isRobotSending: false })
     }
   },
 }))

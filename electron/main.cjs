@@ -78,8 +78,7 @@ function resolveFrontendPath() {
 
 function resolvePythonCwd() {
   if (isDev) return path.resolve(__dirname, '..')
-  // Python modules are in extraResources at process.resourcesPath
-  return process.resourcesPath
+  return path.join(process.resourcesPath, 'app')
 }
 
 function resolveServerPy() {
@@ -169,9 +168,10 @@ let pythonProcess = null
 let serverPort = 0
 const uploadsDir = path.join(app.getPath('userData'), 'uploads')
 const outputsDir = path.join(app.getPath('userData'), 'outputs')
+const imagesDir = path.join(app.getPath('userData'), 'images')
 
 function ensureDirs() {
-  ;[uploadsDir, outputsDir].forEach((dir) => {
+  ;[uploadsDir, outputsDir, imagesDir].forEach((dir) => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   })
 }
@@ -189,7 +189,7 @@ function findFreePort() {
 
 function startPythonServer(port, pythonExe, serverPy, cwd) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PORT: String(port) }
+    const env = { ...process.env, PORT: String(port), UPLOADS_DIR: uploadsDir, OUTPUTS_DIR: outputsDir, IMAGES_DIR: imagesDir }
     log(`Starting Python: ${pythonExe} ${serverPy} --port ${port}`)
     log(`CWD: ${cwd}`)
 

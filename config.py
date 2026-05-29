@@ -36,7 +36,7 @@ class AppConfig:
         return cls(**valid)
 
     def merge_dict(self, d: dict) -> "AppConfig":
-        valid = {f.name: d[f.name] for f in fields(cls) if f.name in d}
+        valid = {f.name: d[f.name] for f in fields(AppConfig) if f.name in d}
         return AppConfig(**{**self.__dict__, **valid})
 
 

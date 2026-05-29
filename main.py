@@ -59,12 +59,24 @@ def load_config_from_dict(config_dict: dict) -> cfg.AppConfig:
 
 
 def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = None,
-                 output_path: str = None, config_dict: dict = None, config: cfg.AppConfig = None):
+                 output_path: str = None, config_dict: dict = None, config: cfg.AppConfig = None,
+                 api_config: dict = None):
     if config is None:
         if config_dict:
             config = load_config_from_dict(config_dict)
         else:
             config = cfg.DEFAULT_CONFIG
+
+    if api_config:
+        api_url = api_config.get('apiUrl', '')
+        api_key = api_config.get('apiKey', '')
+        model_id = api_config.get('modelId', '')
+        if api_url:
+            config = config.merge_dict({'LLM_BASE_URL': api_url})
+        if api_key:
+            config = config.merge_dict({'LLM_API_KEY': api_key})
+        if model_id:
+            config = config.merge_dict({'LLM_MODEL': model_id})
 
     log_lines = []
 
@@ -223,14 +235,27 @@ def run_parse_only(docx_path: str):
     }
 
 
-def run_preview(docx_path: str, config_dict: dict = None, on_progress=None):
+def run_preview(docx_path: str, config_dict: dict = None, on_progress=None, api_config: dict = None):
     from layout.answer_planner import AnswerPlanner
 
     parser = HomeworkParser(docx_path)
     parsed = parser.parse()
 
+    local_config = load_config_from_dict(config_dict) if config_dict else None
+
+    if api_config and local_config:
+        api_url = api_config.get('apiUrl', '')
+        api_key = api_config.get('apiKey', '')
+        model_id = api_config.get('modelId', '')
+        if api_url:
+            local_config = local_config.merge_dict({'LLM_BASE_URL': api_url})
+        if api_key:
+            local_config = local_config.merge_dict({'LLM_API_KEY': api_key})
+        if model_id:
+            local_config = local_config.merge_dict({'LLM_MODEL': model_id})
+
     planner = AnswerPlanner(
-        app_config=load_config_from_dict(config_dict) if config_dict else None,
+        app_config=local_config,
         on_progress=on_progress,
     )
     result = planner.plan_answers(parsed['questions'], user_config=config_dict)

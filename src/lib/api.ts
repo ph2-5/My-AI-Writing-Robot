@@ -90,12 +90,12 @@ export class ApiClient {
           }
         }
 
-        const data = await response.json()
+        const json = await response.json()
         return {
-          success: data.success !== undefined ? data.success : true,
-          error: data.error,
+          success: json.success !== undefined ? json.success : true,
+          error: json.error,
           httpStatus: response.status,
-          data,
+          data: json.data,
         }
       } catch (err: any) {
         lastError = err
@@ -158,7 +158,7 @@ export class ApiClient {
         return {
           success: result.success,
           error: result.error,
-          data: result,
+          data: result.data,
         }
       } catch (err: any) {
         return {
@@ -202,7 +202,7 @@ export class ApiClient {
         return {
           success: result.success,
           error: result.error,
-          data: result,
+          data: result.data,
         }
       } catch (err: any) {
         return {
@@ -230,7 +230,7 @@ export class ApiClient {
         return {
           success: result.success,
           error: result.error,
-          data: result,
+          data: result.data,
         }
       } catch (err: any) {
         return {
@@ -250,7 +250,11 @@ export class ApiClient {
         return {
           success: result.success,
           error: result.error,
-          data: result,
+          data: {
+            fileData: result.data,
+            fileName: `output-${fileId}`,
+            mimeType: result.mimeType,
+          },
         }
       } catch (err: any) {
         return {
@@ -282,7 +286,7 @@ export class ApiClient {
         return {
           success: result.success,
           error: result.error,
-          data: result,
+          data: result.data,
         }
       } catch (err: any) {
         return {
@@ -363,7 +367,7 @@ export class ApiClient {
                 if (currentEvent === 'progress' && onProgress) {
                   onProgress(parsed)
                 } else if (currentEvent === 'result') {
-                  finalResult = parsed
+                  finalResult = { success: parsed.success ?? true, error: parsed.error, data: parsed.data }
                 }
               } catch {}
             }
@@ -373,8 +377,8 @@ export class ApiClient {
         return finalResult
       }
 
-      const data = await response.json()
-      return { success: data.success ?? true, error: data.error, httpStatus: response.status, data: data.data }
+      const json = await response.json()
+      return { success: json.success ?? true, error: json.error, httpStatus: response.status, data: json.data }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return { success: false, error: '请求超时' }
@@ -412,6 +416,41 @@ export class ApiClient {
 
   async health(): Promise<ApiResult> {
     return this.request('/api/health')
+  }
+
+  async robotListPorts(): Promise<ApiResult> {
+    return this.request('/api/robot/ports')
+  }
+
+  async robotConnect(port: string, baudrate: number = 115200): Promise<ApiResult> {
+    return this.request(
+      '/api/robot/connect',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port, baudrate }),
+      },
+    )
+  }
+
+  async robotDisconnect(): Promise<ApiResult> {
+    return this.request('/api/robot/disconnect', { method: 'POST' })
+  }
+
+  async robotStatus(): Promise<ApiResult> {
+    return this.request('/api/robot/status')
+  }
+
+  async robotSend(params: { command?: string; fileId?: string }): Promise<ApiResult> {
+    return this.request(
+      '/api/robot/send',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      },
+      this.generateTimeout,
+    )
   }
 }
 
