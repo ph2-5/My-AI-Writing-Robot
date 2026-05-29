@@ -49,9 +49,17 @@ function initLog() {
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`
   if (logReady && logStream) {
-    logStream.write(line)
+    try {
+      logStream.write(line)
+    } catch {
+      // Ignore write errors (e.g., EPIPE when stdout is closed)
+    }
   }
-  console.log(line.trim())
+  try {
+    console.log(line.trim())
+  } catch {
+    // Ignore console errors
+  }
 }
 
 initLog()
@@ -64,8 +72,18 @@ const isPackaged = app.isPackaged || __dirname.includes('app.asar') || !fs.exist
 
 function getAppRoot() {
   if (isPackaged) {
+    // In packaged mode, check if electron folder is in resources/app or directly in resources
     const appPath = path.join(process.resourcesPath, 'app')
-    log(`Packaged mode, appPath: ${appPath}`)
+    const resourcesPath = process.resourcesPath
+    
+    if (fs.existsSync(path.join(appPath, 'electron', 'server.py'))) {
+      log(`Packaged mode, appPath: ${appPath}`)
+      return appPath
+    } else if (fs.existsSync(path.join(resourcesPath, 'electron', 'server.py'))) {
+      log(`Packaged mode, resourcesPath: ${resourcesPath}`)
+      return resourcesPath
+    }
+    log(`Packaged mode, fallback appPath: ${appPath}`)
     return appPath
   }
   log(`Dev mode, __dirname parent: ${path.resolve(__dirname, '..')}`)
@@ -284,9 +302,19 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
+    // In packaged mode, __dirname is inside app.asar/electron
+    // index.html is at app.asar root, so we need to go up one level from electron folder
     const indexPath = path.join(__dirname, '..', 'index.html')
-    log(`Loading file: ${indexPath}`)
-    mainWindow.loadFile(indexPath)
+    const altIndexPath = path.join(__dirname, '..', '..', 'index.html')
+    
+    let finalPath = indexPath
+    if (!fs.existsSync(indexPath) && fs.existsSync(altIndexPath)) {
+      finalPath = altIndexPath
+    }
+    
+    log(`Loading file: ${finalPath}`)
+    log(`indexPath exists: ${fs.existsSync(indexPath)}, altIndexPath exists: ${fs.existsSync(altIndexPath)}`)
+    mainWindow.loadFile(finalPath)
   }
 
   mainWindow.once('ready-to-show', () => {
