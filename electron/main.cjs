@@ -60,12 +60,13 @@ log(`App starting... isPackaged=${app.isPackaged}, __dirname=${__dirname}`)
 log(`Electron version: ${process.versions.electron}, Node: ${process.version}`)
 log(`Platform: ${process.platform}, Arch: ${process.arch}`)
 
-const isPackaged = __dirname.includes('app.asar') || (app.isPackaged && !fs.existsSync(path.resolve(__dirname, '..', 'package.json')))
+const isPackaged = app.isPackaged || __dirname.includes('app.asar') || !fs.existsSync(path.resolve(__dirname, '..', 'package.json'))
 
 function getAppRoot() {
   if (isPackaged) {
-    log(`Packaged mode, resourcesPath: ${process.resourcesPath}`)
-    return process.resourcesPath
+    const appPath = path.join(process.resourcesPath, 'app')
+    log(`Packaged mode, appPath: ${appPath}`)
+    return appPath
   }
   log(`Dev mode, __dirname parent: ${path.resolve(__dirname, '..')}`)
   return path.resolve(__dirname, '..')
@@ -84,20 +85,9 @@ log(`SERVER_PY exists: ${fs.existsSync(SERVER_PY)}`)
 let PYTHON = null
 
 function findPython() {
-  const candidates = ['python3', 'python', 'py']
   const isWin = process.platform === 'win32'
-  const cmd = isWin ? 'where' : 'which'
 
-  for (const name of candidates) {
-    try {
-      const result = require('child_process').execSync(`${cmd} ${name}`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
-      if (result) {
-        log(`Found python via '${cmd} ${name}': ${result}`)
-        return result.split(/\r?\n/)[0]
-      }
-    } catch {}
-  }
-
+  // Windows: check common installation paths first
   if (isWin) {
     const winPaths = []
     const localAppData = process.env.LOCALAPPDATA || ''
@@ -128,6 +118,23 @@ function findPython() {
         return p
       }
     }
+  }
+
+  // Fallback: check PATH
+  const candidates = ['python3', 'python', 'py']
+  const cmd = isWin ? 'where' : 'which'
+
+  for (const name of candidates) {
+    try {
+      const result = require('child_process').execSync(`${cmd} ${name}`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+      if (result) {
+        const paths = result.split(/\r?\n/).filter(p => !p.includes('WindowsApps'))
+        if (paths.length > 0) {
+          log(`Found python via '${cmd} ${name}': ${paths[0]}`)
+          return paths[0]
+        }
+      }
+    } catch {}
   }
 
   const bundledPython = path.join(process.resourcesPath, 'python', 'python.exe')
@@ -277,7 +284,7 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
+    const indexPath = path.join(__dirname, '..', 'index.html')
     log(`Loading file: ${indexPath}`)
     mainWindow.loadFile(indexPath)
   }
