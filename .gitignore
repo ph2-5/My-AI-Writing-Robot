@@ -72,6 +72,7 @@ demo_output.svg
 *.pak
 *.bin
 *.blockmap
+*.7z
 
 # Trae internal
 .trae/
