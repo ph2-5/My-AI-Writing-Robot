@@ -423,14 +423,21 @@ ipcMain.handle('open-output-folder', () => shell.openPath(outputsDir))
 
 ipcMain.handle('get-app-version', () => app.getVersion())
 
-ipcMain.handle('upload', async (_e, { fileName, fileData, mimeType }) => {
+ipcMain.handle('upload', async (_e, { fileName, fileData, mimeType, attachedImages }) => {
   const boundary = '----Boundary' + crypto.randomBytes(16).toString('hex')
   const fileBuffer = Buffer.from(fileData, 'base64')
-  const header = Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${mimeType}\r\n\r\n`
-  )
-  const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
-  const body = Buffer.concat([header, fileBuffer, footer])
+  const parts = [Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${mimeType}\r\n\r\n`), fileBuffer]
+
+  if (attachedImages && Array.isArray(attachedImages)) {
+    for (let i = 0; i < attachedImages.length; i++) {
+      const img = attachedImages[i]
+      const imgBuffer = Buffer.from(img.data, 'base64')
+      parts.push(Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="image_${i}"; filename="${img.name}"\r\nContent-Type: application/octet-stream\r\n\r\n`), imgBuffer)
+    }
+  }
+
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+  const body = Buffer.concat(parts)
   return serverRequest('POST', '/api/homework/upload', {
     headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length },
     body,

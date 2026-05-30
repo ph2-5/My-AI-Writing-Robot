@@ -3,3 +3,4 @@ numpy>=1.24.0
 openai>=1.0.0
 lxml>=4.9.0
 fonttools>=4.0.0
+pyserial>=3.5

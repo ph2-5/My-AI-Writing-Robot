@@ -155,6 +155,8 @@ def check_ssrf(url: str) -> Optional[str]:
     hostname = parsed.hostname
     if not hostname:
         return 'Invalid API URL'
+    if hostname in ('localhost', '127.0.0.1', '::1'):
+        return None
     if is_private_ip(hostname):
         return f'API URL points to private/reserved address: {hostname}'
     return None

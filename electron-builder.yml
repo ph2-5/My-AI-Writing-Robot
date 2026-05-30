@@ -21,6 +21,7 @@ extraResources:
     filter:
       - main.py
       - config.py
+      - logging_utils.py
       - requirements.txt
       - analyzers/**
       - effects/**
@@ -28,6 +29,8 @@ extraResources:
       - layout/**
       - output/**
       - parsers/**
+      - symbols/**
+      - scripts/**
 win:
   target:
     - target: nsis
