@@ -39,6 +39,8 @@ win:
     - target: portable
       arch:
         - x64
+  forceCodeSigning: false
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
