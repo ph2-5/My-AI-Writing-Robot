@@ -426,6 +426,31 @@ export class ApiClient {
     return this.request('/api/health')
   }
 
+  async testLlm(config: Record<string, unknown>): Promise<ApiResult> {
+    if (this.isElectron() && (window as any).electronAPI.testLlm) {
+      try {
+        const result = await (window as any).electronAPI.testLlm(config)
+        const { success: tSuccess, error: tError, ...tRest } = result
+        return {
+          success: tSuccess,
+          error: tError,
+          data: Object.keys(tRest).length > 0 ? tRest : undefined,
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message || 'IPC测试失败' }
+      }
+    }
+    return this.request(
+      '/api/test-llm',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      },
+      20000,
+    )
+  }
+
   async robotListPorts(): Promise<ApiResult> {
     return this.request('/api/robot/ports')
   }

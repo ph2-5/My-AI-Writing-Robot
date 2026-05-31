@@ -162,12 +162,34 @@ def check_ssrf(url: str) -> Optional[str]:
     return None
 
 
+PROVIDER_DEFAULTS = {
+    'deepseek': {'apiUrl': 'https://api.deepseek.com', 'modelId': 'deepseek-chat'},
+    'openai': {'apiUrl': 'https://api.openai.com/v1', 'modelId': 'gpt-4o'},
+    'zhipu': {'apiUrl': 'https://open.bigmodel.cn/api/paas/v4', 'modelId': 'glm-4'},
+    'qwen': {'apiUrl': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'modelId': 'qwen-plus'},
+    'moonshot': {'apiUrl': 'https://api.moonshot.cn/v1', 'modelId': 'moonshot-v1-8k'},
+}
+
+
 def resolve_api_config(request_data: dict) -> Dict[str, Any]:
     result = {}
-    result['providerId'] = request_data.get('providerId', '')
-    result['modelId'] = request_data.get('modelId', request_data.get('llmModel', ''))
-    result['apiUrl'] = request_data.get('apiUrl', request_data.get('llmBaseUrl', ''))
-    result['apiKey'] = request_data.get('apiKey', request_data.get('llmApiKey', ''))
+    provider_id = request_data.get('providerId', '') or (request_data.get('config', {}) or {}).get('providerId', '')
+    defaults = PROVIDER_DEFAULTS.get(provider_id, {})
+
+    result['providerId'] = provider_id
+    result['modelId'] = (request_data.get('modelId', '') or '').strip() or defaults.get('modelId', '')
+    result['apiUrl'] = (request_data.get('apiUrl', '') or '').strip() or defaults.get('apiUrl', '')
+    result['apiKey'] = (request_data.get('apiKey', '') or '').strip()
+
+    config_obj = request_data.get('config', {})
+    if isinstance(config_obj, dict):
+        if not result['apiUrl']:
+            result['apiUrl'] = str(config_obj.get('llmBaseUrl', '') or '').strip() or defaults.get('apiUrl', '')
+        if not result['apiKey']:
+            result['apiKey'] = str(config_obj.get('llmApiKey', '') or '').strip()
+        if not result['modelId']:
+            result['modelId'] = str(config_obj.get('llmModel', '') or '').strip() or defaults.get('modelId', '')
+
     return result
 
 
@@ -210,6 +232,48 @@ def call_llm(api_config: Dict[str, Any], messages: list, stream: bool = False, r
 
 def _handle_health(handler):
     handler._send_json(api_success({'message': 'ok', 'timestamp': time.time()}))
+
+
+def _handle_test_llm(handler):
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        api_config = resolve_api_config(data)
+        api_url = api_config.get('apiUrl', '')
+        api_key = api_config.get('apiKey', '')
+        model_id = api_config.get('modelId', '')
+
+        if not api_key:
+            handler._send_json(api_error('API Key 未填写'), 400)
+            return
+
+        if not api_url:
+            handler._send_json(api_error('API URL 未配置'), 400)
+            return
+
+        from openai import OpenAI
+        client = OpenAI(base_url=api_url, api_key=api_key, timeout=15.0)
+        response = client.chat.completions.create(
+            model=model_id or 'deepseek-chat',
+            messages=[{"role": "user", "content": "你好，请回复OK"}],
+            max_tokens=10,
+        )
+        content = response.choices[0].message.content if response.choices else ''
+        handler._send_json(api_success({
+            'connected': True,
+            'model': model_id,
+            'response': content[:50],
+            'message': f'连接成功！模型: {model_id}',
+        }))
+    except Exception as e:
+        error_msg = str(e)
+        handler._send_json(api_error(f'连接失败: {error_msg[:100]}'), 500)
 
 
 def _handle_demo(handler):
@@ -774,6 +838,7 @@ def _handle_robot_send(handler):
 
 routes = {
     '/api/health': {'handler': _handle_health, 'methods': ['GET']},
+    '/api/test-llm': {'handler': _handle_test_llm, 'methods': ['POST']},
     '/api/homework/demo': {'handler': _handle_demo, 'methods': ['GET']},
     '/api/homework/download/': {'handler': _handle_download, 'methods': ['GET'], 'prefix': True},
     '/api/homework/upload': {'handler': _handle_upload, 'methods': ['POST']},

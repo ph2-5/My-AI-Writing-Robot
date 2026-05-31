@@ -17,6 +17,10 @@ const IPC_PERMISSIONS = {
     validate: (args) => typeof args[0] === 'object' && args[0] !== null,
   },
   'demo': { maxArgs: 0, validate: null },
+  'test-llm': {
+    maxArgs: 1,
+    validate: (args) => typeof args[0] === 'object' && args[0] !== null,
+  },
   'download': {
     maxArgs: 1,
     validate: (args) => typeof args[0] === 'string' && args[0].length > 0 && args[0].length < 256,
@@ -82,6 +86,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   upload: (fileData) => secureInvoke('upload', fileData),
   generate: (params) => secureInvoke('generate', params),
   demo: () => secureInvoke('demo'),
+  testLlm: (config) => secureInvoke('test-llm', config),
   download: (fileId) => secureInvoke('download', fileId),
   preview: (params) => secureInvoke('preview', params),
   robotPorts: () => secureInvoke('robot-ports'),

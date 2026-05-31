@@ -51,10 +51,14 @@ def load_config_from_dict(config_dict: dict) -> cfg.AppConfig:
         'llmApiKey': 'LLM_API_KEY',
         'llmModel': 'LLM_MODEL',
     }
+    skip_if_empty = {'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'}
     mapped = {}
     for camel_key, snake_key in mapping.items():
         if camel_key in config_dict:
-            mapped[snake_key] = config_dict[camel_key]
+            val = config_dict[camel_key]
+            if snake_key in skip_if_empty and (val is None or str(val).strip() == ''):
+                continue
+            mapped[snake_key] = val
     return cfg.DEFAULT_CONFIG.merge_dict(mapped)
 
 

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAppStore } from '@/stores/useAppStore'
 import { useConfigStore } from '@/stores/useConfigStore'
-import { ArrowLeft, ArrowRight, RotateCcw, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import { apiClient } from '@/lib/api'
+import { ArrowLeft, ArrowRight, RotateCcw, Check, ChevronDown, ChevronUp, Loader2, Wifi, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type ConfigSection = 'paper' | 'font' | 'robot' | 'handdrawn' | 'llm'
@@ -337,7 +338,27 @@ function HandDrawnConfig() {
 // LLM配置
 function LLMConfig() {
   const config = useConfigStore()
-  
+  const [isTesting, setIsTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  const handleTest = async () => {
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const result = await apiClient.testLlm(config.getConfig())
+      if (result.success && result.data) {
+        const data = result.data as any
+        setTestResult({ success: true, message: data.message || '连接成功' })
+      } else {
+        setTestResult({ success: false, message: result.error || '连接失败' })
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: err.message || '测试异常' })
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -355,7 +376,7 @@ function LLMConfig() {
         <input
           type="password"
           value={config.llmApiKey}
-          onChange={(e) => config.setLlmApiKey(e.target.value)}
+          onChange={(e) => { config.setLlmApiKey(e.target.value); setTestResult(null) }}
           placeholder="sk-..."
           className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none"
         />
@@ -369,6 +390,30 @@ function LLMConfig() {
           placeholder="deepseek-chat"
           className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none"
         />
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleTest}
+          disabled={isTesting || !config.llmApiKey}
+          className={cn(
+            'flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-colors',
+            config.llmApiKey && !isTesting
+              ? 'bg-blue-600 text-white hover:bg-blue-500'
+              : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+          )}
+        >
+          {isTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+          {isTesting ? '测试中...' : '测试连接'}
+        </button>
+        {testResult && (
+          <div className={cn(
+            'flex items-center gap-1.5 text-xs',
+            testResult.success ? 'text-green-400' : 'text-red-400'
+          )}>
+            {testResult.success ? <Check className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+            {testResult.message}
+          </div>
+        )}
       </div>
     </div>
   )

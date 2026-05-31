@@ -85,7 +85,7 @@ const DEFAULTS = {
   handDrawnAmplitude: 0.3,
   handDrawnCornerExaggeration: 2.0,
   paperTemplate: 'blank',
-  llmBaseUrl: '',
+  llmBaseUrl: 'https://api.deepseek.com',
   llmApiKey: '',
   llmModel: 'deepseek-chat',
   providerId: 'deepseek',

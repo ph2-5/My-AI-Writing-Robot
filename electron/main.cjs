@@ -468,6 +468,15 @@ ipcMain.handle('generate', async (_e, { fileId, format, seed, config }) => {
 
 ipcMain.handle('demo', async () => serverRequest('GET', '/api/homework/demo'))
 
+ipcMain.handle('testLlm', async (_e, config) => {
+  const body = Buffer.from(JSON.stringify(config), 'utf-8')
+  return serverRequest('POST', '/api/test-llm', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    body,
+    timeout: 20000,
+  })
+})
+
 ipcMain.handle('download', async (_e, fileId) => {
   const result = await serverRequest('GET', `/api/homework/download/${fileId}`, { rawResponse: true })
   if (result.statusCode === 200) {

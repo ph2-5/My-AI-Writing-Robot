@@ -28,7 +28,7 @@ class AppConfig:
     HAND_DRAWN_CORNER_EXAGGERATION: float = 1.5
     LLM_BASE_URL: str = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
     LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "")
-    LLM_MODEL: str = os.environ.get("LLM_MODEL", "deepseek-coder")
+    LLM_MODEL: str = os.environ.get("LLM_MODEL", "deepseek-chat")
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
