@@ -477,6 +477,24 @@ ipcMain.handle('testLlm', async (_e, config) => {
   })
 })
 
+ipcMain.handle('adjust', async (_e, params) => {
+  const body = Buffer.from(JSON.stringify(params), 'utf-8')
+  return serverRequest('POST', '/api/homework/adjust', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    body,
+    timeout: 180000,
+  })
+})
+
+ipcMain.handle('selfCheck', async (_e, params) => {
+  const body = Buffer.from(JSON.stringify(params), 'utf-8')
+  return serverRequest('POST', '/api/homework/self-check', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    body,
+    timeout: 120000,
+  })
+})
+
 ipcMain.handle('download', async (_e, fileId) => {
   const result = await serverRequest('GET', `/api/homework/download/${fileId}`, { rawResponse: true })
   if (result.statusCode === 200) {

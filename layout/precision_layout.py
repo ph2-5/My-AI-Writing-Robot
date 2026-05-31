@@ -148,13 +148,14 @@ class PrecisionLayout:
         area_w = self.writable_w * width_ratio
         area_x = self.margin_l + (self.writable_w - area_w) / 2
 
-        actor_height = 30
-        usecase_w = 50
-        usecase_h = 25
-        padding = 10
+        n_actors = max(len(actors), 1)
+        n_usecases = max(len(usecases), 1)
 
-        n_actors = len(actors)
-        n_usecases = len(usecases)
+        scale = min(self.writable_w / 180.0, self.writable_h / 257.0)
+        actor_height = 30 * scale
+        usecase_w = max(40 * scale, max(len(uc) * self.font_label * 1.5 for uc in usecases) if usecases else 40 * scale)
+        usecase_h = max(20 * scale, self.font_label * 4)
+        padding = 10 * scale
 
         actor_spacing = area_w / (n_actors + 1) if n_actors > 0 else area_w
         usecase_spacing = area_w / (n_usecases + 1) if n_usecases > 0 else area_w
@@ -189,7 +190,7 @@ class PrecisionLayout:
                 else:
                     commands.append({'type': 'line', 'x1': from_pos[0], 'y1': from_pos[1], 'x2': to_pos[0], 'y2': to_pos[1]})
 
-        used_height = max(min_height, actor_height + padding * 3 + usecase_h)
+        used_height = max(min_height * scale, actor_height + padding * 3 + usecase_h)
         return commands, used_height
 
     def _layout_uml_class(self, section: dict, start_y: float) -> tuple:
@@ -197,11 +198,12 @@ class PrecisionLayout:
         classes = elements.get('classes', [])
         relations = elements.get('relations', [])
 
-        class_w = 60
+        scale = min(self.writable_w / 180.0, self.writable_h / 257.0)
+        class_w = max(60 * scale, max((len(c.get('name', '')) * self.font_label * 1.5) for c in classes) if classes else 60 * scale)
         name_h = self.font_label * 2.5
         attr_line_h = self.font_label * 1.8
         method_line_h = self.font_label * 1.8
-        padding = 15
+        padding = 15 * scale
         cols = min(3, len(classes)) if classes else 1
 
         commands = []
@@ -257,7 +259,8 @@ class PrecisionLayout:
         area_w = self.writable_w * width_ratio
         area_x = self.margin_l + (self.writable_w - area_w) / 2
 
-        lifeline_spacing = area_w / (len(participants) + 1) if participants else area_w
+        scale = min(self.writable_w / 180.0, self.writable_h / 257.0)
+        lifeline_spacing = area_w / (max(len(participants), 1) + 1) if participants else area_w
         message_spacing = self.line_spacing * 1.5
         header_height = self.font_label * 3
         lifeline_top = start_y + header_height
@@ -323,6 +326,7 @@ class PrecisionLayout:
         size_hint = section.get('size_hint', {})
         width_ratio = size_hint.get('width_ratio', 0.7)
 
+        scale = min(self.writable_w / 180.0, self.writable_h / 257.0)
         area_w = self.writable_w * width_ratio
         center_x = self.margin_l + self.writable_w / 2
         node_spacing = self.line_spacing * 2.5

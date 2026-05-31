@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { apiClient } from '@/lib/api'
+import { useConfigStore } from '@/stores/useConfigStore'
 
 interface Question {
   number: number
@@ -69,6 +70,9 @@ interface GenerateState {
   setPreviewSvg: (svg: string) => void
   setQuestionPlans: (plans: any[]) => void
   setQuestions: (questions: Question[]) => void
+  adjustLayout: (adjustments: Record<string, unknown>) => Promise<void>
+  runSelfCheck: () => Promise<void>
+  selfCheckResult: Record<string, unknown> | null
   refreshRobotPorts: () => Promise<void>
   connectRobot: (port: string, baudrate?: number) => Promise<void>
   disconnectRobot: () => Promise<void>
@@ -99,6 +103,7 @@ const initialState = {
   robotPorts: [] as SerialPort[],
   isRobotConnecting: false as boolean,
   isRobotSending: false as boolean,
+  selfCheckResult: null as Record<string, unknown> | null,
 }
 
 export const useGenerateStore = create<GenerateState>((set) => ({
@@ -243,6 +248,64 @@ export const useGenerateStore = create<GenerateState>((set) => ({
       set({ error: err.message || '预览异常' })
     } finally {
       set({ isPreviewing: false, isAgentWorking: false })
+    }
+  },
+
+  adjustLayout: async (adjustments) => {
+    const state = useGenerateStore.getState()
+    if (!state.fileId) return
+    set({ isGenerating: true, error: null })
+    try {
+      const config = useConfigStore.getState().getConfig()
+      const result = await apiClient.adjust({
+        fileId: state.fileId,
+        adjustments,
+        config,
+        format: (config.outputFormat as string) || 'kuixiang',
+      })
+      if (result.success && result.data) {
+        const data = result.data as any
+        set({
+          svgContent: data.svgContent ?? '',
+          strokeCount: data.strokeCount ?? 0,
+          estimatedTime: data.estimatedTime ?? 0,
+        })
+      } else {
+        set({ error: result.error || '调整失败' })
+      }
+    } catch (err: any) {
+      set({ error: err.message || '调整异常' })
+    } finally {
+      set({ isGenerating: false })
+    }
+  },
+
+  runSelfCheck: async () => {
+    const state = useGenerateStore.getState()
+    if (!state.fileId) return
+    set({ isAgentWorking: true, error: null, selfCheckResult: null })
+    try {
+      const config = useConfigStore.getState().getConfig()
+      const result = await apiClient.selfCheck({
+        fileId: state.fileId,
+        svgContent: state.svgContent || state.previewSvg,
+        questions: state.questions,
+        config,
+      })
+      if (result.success && result.data) {
+        const data = result.data as any
+        set({ selfCheckResult: data.checkResult || data })
+        const checkResult = data.checkResult || data
+        if (!checkResult.passed && checkResult.suggestions && Object.keys(checkResult.suggestions).length > 0) {
+          await useGenerateStore.getState().adjustLayout(checkResult.suggestions)
+        }
+      } else {
+        set({ error: result.error || '自检失败' })
+      }
+    } catch (err: any) {
+      set({ error: err.message || '自检异常' })
+    } finally {
+      set({ isAgentWorking: false })
     }
   },
 

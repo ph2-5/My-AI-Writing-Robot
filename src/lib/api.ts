@@ -451,6 +451,48 @@ export class ApiClient {
     )
   }
 
+  async adjust(params: { fileId: string; adjustments: Record<string, unknown>; config: Record<string, unknown>; format?: string }): Promise<ApiResult> {
+    if (this.isElectron() && (window as any).electronAPI.adjust) {
+      try {
+        const result = await (window as any).electronAPI.adjust(params)
+        const { success: aSuccess, error: aError, ...aRest } = result
+        return { success: aSuccess, error: aError, data: Object.keys(aRest).length > 0 ? aRest : undefined }
+      } catch (err: any) {
+        return { success: false, error: err.message || 'IPC调整失败' }
+      }
+    }
+    return this.request(
+      '/api/homework/adjust',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      },
+      this.generateTimeout,
+    )
+  }
+
+  async selfCheck(params: { fileId: string; svgContent?: string; questions?: unknown[]; config: Record<string, unknown> }): Promise<ApiResult> {
+    if (this.isElectron() && (window as any).electronAPI.selfCheck) {
+      try {
+        const result = await (window as any).electronAPI.selfCheck(params)
+        const { success: sSuccess, error: sError, ...sRest } = result
+        return { success: sSuccess, error: sError, data: Object.keys(sRest).length > 0 ? sRest : undefined }
+      } catch (err: any) {
+        return { success: false, error: err.message || 'IPC自检失败' }
+      }
+    }
+    return this.request(
+      '/api/homework/self-check',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      },
+      this.generateTimeout,
+    )
+  }
+
   async robotListPorts(): Promise<ApiResult> {
     return this.request('/api/robot/ports')
   }

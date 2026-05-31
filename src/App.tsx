@@ -836,7 +836,11 @@ function ConfigPanel() {
 }
 
 function PreviewPanel() {
-  const { fileId, isPreviewing, isAgentWorking, agentProgress, error } = useGenerateStore()
+  const { fileId, isPreviewing, isAgentWorking, isGenerating, agentProgress, error, svgContent, previewSvg, selfCheckResult } = useGenerateStore()
+  const [adjustScale, setAdjustScale] = useState(1.0)
+  const [adjustLineSpacing, setAdjustLineSpacing] = useState(0)
+  const [adjustFontSize, setAdjustFontSize] = useState(0)
+  const hasContent = !!(svgContent || previewSvg)
 
   const handlePreview = async () => {
     if (!fileId || isPreviewing) return
@@ -913,6 +917,97 @@ function PreviewPanel() {
         <Download className="h-3.5 w-3.5" />
         导出命令
       </button>
+
+      {hasContent && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-3">
+          <h4 className="text-[10px] font-semibold text-zinc-500 uppercase">布局调整</h4>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">缩放</span>
+              <span className="text-[10px] text-blue-400">{adjustScale.toFixed(1)}x</span>
+            </div>
+            <input type="range" min="0.5" max="2.0" step="0.1" value={adjustScale}
+              onChange={(e) => setAdjustScale(Number(e.target.value))} className="w-full accent-blue-600" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">行间距调整</span>
+              <span className="text-[10px] text-blue-400">{adjustLineSpacing > 0 ? '+' : ''}{adjustLineSpacing.toFixed(1)}mm</span>
+            </div>
+            <input type="range" min="-3" max="5" step="0.5" value={adjustLineSpacing}
+              onChange={(e) => setAdjustLineSpacing(Number(e.target.value))} className="w-full accent-blue-600" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">字号调整</span>
+              <span className="text-[10px] text-blue-400">{adjustFontSize > 0 ? '+' : ''}{adjustFontSize.toFixed(1)}mm</span>
+            </div>
+            <input type="range" min="-2" max="3" step="0.5" value={adjustFontSize}
+              onChange={(e) => setAdjustFontSize(Number(e.target.value))} className="w-full accent-blue-600" />
+          </div>
+          <button
+            onClick={() => {
+              const adjustments: Record<string, unknown> = {}
+              if (adjustScale !== 1.0) adjustments.scale = adjustScale
+              if (adjustLineSpacing !== 0) adjustments.lineSpacing = useConfigStore.getState().lineSpacing + adjustLineSpacing
+              if (adjustFontSize !== 0) {
+                adjustments.fontSizeBody = useConfigStore.getState().fontSizeBody + adjustFontSize
+                adjustments.fontSizeTitle = useConfigStore.getState().fontSizeTitle + adjustFontSize
+              }
+              if (Object.keys(adjustments).length > 0) {
+                useGenerateStore.getState().adjustLayout(adjustments)
+              }
+            }}
+            disabled={isGenerating || (adjustScale === 1.0 && adjustLineSpacing === 0 && adjustFontSize === 0)}
+            className={cn(
+              'w-full flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors',
+              !isGenerating && (adjustScale !== 1.0 || adjustLineSpacing !== 0 || adjustFontSize !== 0)
+                ? 'bg-orange-600 text-white hover:bg-orange-500'
+                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+            )}
+          >
+            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SlidersHorizontal className="h-3.5 w-3.5" />}
+            {isGenerating ? '调整中...' : '应用调整'}
+          </button>
+        </div>
+      )}
+
+      {hasContent && (
+        <button
+          onClick={() => useGenerateStore.getState().runSelfCheck()}
+          disabled={isAgentWorking || isGenerating}
+          className={cn(
+            'w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-semibold transition-colors',
+            !isAgentWorking && !isGenerating
+              ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+              : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+          )}
+        >
+          {isAgentWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+          {isAgentWorking ? 'AI 检查中...' : 'AI 自检优化'}
+        </button>
+      )}
+
+      {selfCheckResult && (
+        <div className={cn(
+          'rounded-lg border px-3 py-2 space-y-1',
+          (selfCheckResult as any).passed ? 'border-green-500/30 bg-green-500/5' : 'border-amber-500/30 bg-amber-500/5'
+        )}>
+          <p className={cn('text-xs font-medium', (selfCheckResult as any).passed ? 'text-green-400' : 'text-amber-400')}>
+            {(selfCheckResult as any).passed ? '✓ 检查通过' : '⚠ 发现问题'}
+          </p>
+          {(selfCheckResult as any).summary && (
+            <p className="text-[10px] text-zinc-400">{(selfCheckResult as any).summary}</p>
+          )}
+          {((selfCheckResult as any).issues || []).length > 0 && (
+            <ul className="text-[10px] text-zinc-500 space-y-0.5">
+              {((selfCheckResult as any).issues || []).map((issue: string, i: number) => (
+                <li key={i}>• {issue}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {isAgentWorking && agentProgress.length > 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">

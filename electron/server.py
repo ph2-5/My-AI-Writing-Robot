@@ -751,6 +751,358 @@ def _handle_image_analyze(handler):
         handler._send_json(api_error(str(e), 500), 500)
 
 
+def _handle_adjust(handler):
+    """生成后编辑调整：接受调整参数，重新生成"""
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        file_id = data.get('fileId')
+        adjustments = data.get('adjustments', {})
+        config_obj = data.get('config')
+        fmt = data.get('format', 'kuixang')
+
+        if not file_id:
+            handler._send_json(api_error('fileId is required', 400), 400)
+            return
+
+        if not validate_file_id(file_id):
+            handler._send_json(api_error('Invalid file ID', 400), 400)
+            return
+
+        if config_obj:
+            config_error = validate_config(config_obj)
+            if config_error:
+                handler._send_json(api_error(config_error, 400), 400)
+                return
+
+        # Validate adjustment parameters
+        valid_adjust_keys = {'scale', 'offsetX', 'offsetY', 'fontSizeTitle', 'fontSizeBody',
+                            'lineSpacing', 'charSpacing', 'questionSpacing', 'marginTop',
+                            'marginBottom', 'marginLeft', 'marginRight'}
+        for key in adjustments:
+            if key not in valid_adjust_keys:
+                handler._send_json(api_error(f'Unknown adjustment key: {key}', 400), 400)
+                return
+
+        uploaded_files = os.listdir(UPLOADS_DIR)
+        matched = [f for f in uploaded_files if f.startswith(file_id)]
+        if not matched:
+            handler._send_json(api_error('File not found', 404), 404)
+            return
+
+        input_path = os.path.join(UPLOADS_DIR, matched[0])
+        output_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+        ext = 'gcode' if fmt == 'gcode' else 'svg'
+        output_path = os.path.join(OUTPUTS_DIR, f"{output_id}.{ext}")
+
+        # Merge adjustments into config
+        merged_config = config_obj or {}
+        merged_config.update(adjustments)
+
+        api_config = resolve_api_config(data)
+        if config_obj:
+            if not api_config.get('apiUrl') and config_obj.get('llmBaseUrl'):
+                api_config['apiUrl'] = config_obj['llmBaseUrl']
+            if not api_config.get('apiKey') and config_obj.get('llmApiKey'):
+                api_config['apiKey'] = config_obj['llmApiKey']
+            if not api_config.get('modelId') and config_obj.get('llmModel'):
+                api_config['modelId'] = config_obj['llmModel']
+
+        result = core.run_generate(
+            input_path,
+            output_format=fmt,
+            output_path=output_path,
+            config_dict=merged_config,
+            api_config=api_config,
+        )
+
+        with open(output_path, 'r', encoding='utf-8') as f:
+            svg_content = f.read()
+
+        handler._send_json(api_success({
+            'fileId': output_id,
+            'svgContent': svg_content,
+            'strokeCount': result.get('strokeCount', 0),
+            'estimatedTime': result.get('estimatedTime', 0),
+            'questions': result.get('questions', []),
+            'log': result.get('log', ''),
+            'outputPath': f'/api/homework/download/{output_id}',
+            'adjustments': adjustments,
+        }))
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_self_check(handler):
+    """AI自我检查：让AI检查生成结果并自动修正"""
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        file_id = data.get('fileId')
+        svg_content = data.get('svgContent', '')
+        questions = data.get('questions', [])
+        config_obj = data.get('config')
+
+        if not file_id and not svg_content:
+            handler._send_json(api_error('fileId or svgContent is required', 400), 400)
+            return
+
+        if file_id and not validate_file_id(file_id):
+            handler._send_json(api_error('Invalid file ID', 400), 400)
+            return
+
+        # If fileId provided, load the SVG content from outputs
+        if file_id and not svg_content:
+            output_files = os.listdir(OUTPUTS_DIR)
+            matched = [f for f in output_files if f.startswith(file_id) and '-config' not in f]
+            if not matched:
+                handler._send_json(api_error('Output file not found', 404), 404)
+                return
+            output_path = os.path.join(OUTPUTS_DIR, matched[0])
+            with open(output_path, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+
+        api_config = resolve_api_config(data)
+        if not api_config.get('apiKey'):
+            handler._send_json(api_error('API Key is required for self-check', 400), 400)
+            return
+
+        # Build self-check prompt
+        questions_text = ''
+        if questions:
+            questions_text = '\n'.join([
+                f"{i+1}. {q.get('text', q.get('question', ''))}"
+                for i, q in enumerate(questions) if isinstance(q, dict)
+            ])
+        elif isinstance(questions, list):
+            questions_text = '\n'.join([f"{i+1}. {q}" for i, q in enumerate(questions)])
+
+        check_prompt = f"""你是一个书写机器人输出质量检查专家。请检查以下作业生成结果是否存在问题。
+
+题目内容：
+{questions_text if questions_text else '（未提供题目信息）'}
+
+生成的SVG内容摘要（前2000字符）：
+{svg_content[:2000]}
+
+请从以下方面检查并给出修正建议：
+1. 文字是否完整，有无截断或遗漏
+2. 布局是否合理，有无重叠或溢出
+3. 间距是否适当
+4. 字号是否合适
+5. 边距是否合理
+
+请以JSON格式回复，格式如下：
+{{
+  "passed": true/false,
+  "issues": ["问题1", "问题2"],
+  "suggestions": {{
+    "adjustment_key": adjusted_value
+  }},
+  "summary": "检查总结"
+}}
+
+可调整的参数包括：scale, offsetX, offsetY, fontSizeTitle, fontSizeBody, lineSpacing, charSpacing, questionSpacing, marginTop, marginBottom, marginLeft, marginRight"""
+
+        messages = [
+            {"role": "system", "content": "你是一个书写机器人输出质量检查专家，请严格按照JSON格式回复。"},
+            {"role": "user", "content": check_prompt}
+        ]
+
+        llm_result = call_llm(api_config, messages, stream=False, response_format={"type": "json_object"})
+
+        if not llm_result['success']:
+            handler._send_json(api_error(f'Self-check LLM call failed: {llm_result.get("error", "unknown")}', 500), 500)
+            return
+
+        check_content = llm_result.get('content', '')
+        try:
+            check_result = json.loads(check_content)
+        except (json.JSONDecodeError, TypeError):
+            json_match = re.search(r'\{[\s\S]*\}', check_content)
+            if json_match:
+                check_result = json.loads(json_match.group())
+            else:
+                check_result = {
+                    'passed': True,
+                    'issues': [],
+                    'suggestions': {},
+                    'summary': check_content[:200],
+                }
+
+        handler._send_json(api_success({
+            'checkResult': check_result,
+            'fileId': file_id,
+        }))
+
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_adjust(handler):
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        file_id = data.get('fileId')
+        adjustments = data.get('adjustments', {})
+        config_obj = data.get('config')
+        fmt = data.get('format', 'kuixiang')
+
+        if not file_id:
+            handler._send_json(api_error('fileId is required', 400), 400)
+            return
+
+        uploaded_files = os.listdir(UPLOADS_DIR)
+        matched = [f for f in uploaded_files if f.startswith(file_id)]
+        if not matched:
+            handler._send_json(api_error('File not found', 404), 404)
+            return
+
+        input_path = os.path.join(UPLOADS_DIR, matched[0])
+        output_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+        ext = 'gcode' if fmt == 'gcode' else 'svg'
+        output_path = os.path.join(OUTPUTS_DIR, f"{output_id}.{ext}")
+
+        merged_config = dict(config_obj) if config_obj else {}
+        merged_config.update(adjustments)
+
+        api_config = resolve_api_config(data)
+        result = core.run_generate(
+            input_path,
+            output_format=fmt,
+            output_path=output_path,
+            config_dict=merged_config,
+            api_config=api_config,
+        )
+
+        with open(output_path, 'r', encoding='utf-8') as f:
+            svg_content = f.read()
+
+        handler._send_json(api_success({
+            'fileId': output_id,
+            'svgContent': svg_content,
+            'strokeCount': result.get('strokeCount', 0),
+            'estimatedTime': result.get('estimatedTime', 0),
+            'questions': result.get('questions', []),
+        }))
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
+
+
+def _handle_self_check(handler):
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            handler._send_json(api_error('Request body too large', 413), 413)
+            return
+
+        body = handler.rfile.read(content_length).decode('utf-8')
+        data = json.loads(body)
+
+        file_id = data.get('fileId')
+        svg_content = data.get('svgContent', '')
+        questions = data.get('questions', [])
+        config_obj = data.get('config')
+
+        if not file_id:
+            handler._send_json(api_error('fileId is required', 400), 400)
+            return
+
+        api_config = resolve_api_config(data)
+        api_url = api_config.get('apiUrl', '')
+        api_key = api_config.get('apiKey', '')
+        model_id = api_config.get('modelId', '')
+
+        if not api_key:
+            handler._send_json(api_error('需要 API Key 才能使用 AI 自检功能'), 400)
+            return
+
+        from openai import OpenAI
+        client = OpenAI(base_url=api_url, api_key=api_key, timeout=30.0)
+
+        questions_summary = []
+        for q in questions[:10]:
+            if isinstance(q, dict):
+                questions_summary.append({
+                    'number': q.get('number', ''),
+                    'text': str(q.get('text', ''))[:80],
+                    'type': q.get('type', 'unknown'),
+                })
+
+        check_prompt = f"""你是一个排版质量检查专家。请检查以下作业排版是否存在问题。
+
+题目列表: {json.dumps(questions_summary, ensure_ascii=False)}
+
+SVG内容长度: {len(svg_content)} 字符
+
+请检查以下方面：
+1. 文字是否可能超出纸张边界
+2. 字号是否合理（标题应大于正文）
+3. 行间距是否合适（不能太挤也不能太松）
+4. 整体布局是否协调
+
+请以JSON格式回复：
+{{
+  "passed": true/false,
+  "summary": "简短总结",
+  "issues": ["问题1", "问题2"],
+  "suggestions": {{
+    "scale": 1.0,
+    "lineSpacing": 8.0,
+    "fontSizeBody": 5.0,
+    "fontSizeTitle": 8.0
+  }}
+}}
+
+如果排版没有问题，passed设为true，suggestions设为空对象{{}}。
+如果发现问题，suggestions中只包含需要调整的参数。"""
+
+        response = client.chat.completions.create(
+            model=model_id or 'deepseek-chat',
+            messages=[{"role": "user", "content": check_prompt}],
+            max_tokens=500,
+            response_format={"type": "json_object"},
+        )
+
+        result_text = response.choices[0].message.content if response.choices else '{}'
+        check_result = json.loads(result_text)
+
+        if 'suggestions' not in check_result:
+            check_result['suggestions'] = {}
+        if 'issues' not in check_result:
+            check_result['issues'] = []
+        if 'passed' not in check_result:
+            check_result['passed'] = True
+        if 'summary' not in check_result:
+            check_result['summary'] = ''
+
+        handler._send_json(api_success({'checkResult': check_result}))
+    except Exception as e:
+        traceback.print_exc()
+        handler._send_json(api_error(str(e), 500), 500)
+
+
 def _handle_robot_ports(handler):
     try:
         ports = RobotConnection.list_ports()
@@ -845,6 +1197,8 @@ routes = {
     '/api/homework/generate': {'handler': _handle_generate, 'methods': ['POST']},
     '/api/homework/preview': {'handler': _handle_preview, 'methods': ['POST']},
     '/api/homework/analyze-image': {'handler': _handle_image_analyze, 'methods': ['POST']},
+    '/api/homework/adjust': {'handler': _handle_adjust, 'methods': ['POST']},
+    '/api/homework/self-check': {'handler': _handle_self_check, 'methods': ['POST']},
     '/api/llm/call': {'handler': _handle_llm_call, 'methods': ['POST']},
     '/api/robot/ports': {'handler': _handle_robot_ports, 'methods': ['GET']},
     '/api/robot/connect': {'handler': _handle_robot_connect, 'methods': ['POST']},
