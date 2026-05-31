@@ -18,6 +18,7 @@ release
 release2
 release3
 release-build
+release-build2
 app-build
 
 # Electron builder cache

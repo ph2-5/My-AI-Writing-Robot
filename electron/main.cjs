@@ -68,26 +68,27 @@ function initLog() {
 const isDev = !app.isPackaged || process.resourcesPath.includes('node_modules')
 
 function resolveFrontendPath() {
-  if (isDev) return null // Use URL instead
-  // __dirname is either app.asar/electron or resources/app/electron
-  // index.html is in dist/ folder one level up from electron/
-  const candidate = path.join(__dirname, '..', 'dist', 'index.html')
-  log(`Frontend candidate: ${candidate}, exists: ${fs.existsSync(candidate)}`)
-  return candidate
+  if (isDev) return null
+  const candidates = [
+    path.join(__dirname, '..', 'dist', 'index.html'),
+    path.join(__dirname, 'dist', 'index.html'),
+  ]
+  for (const p of candidates) {
+    log(`Frontend candidate: ${p}, exists: ${fs.existsSync(p)}`)
+    if (fs.existsSync(p)) return p
+  }
+  return candidates[0]
 }
 
 function resolvePythonCwd() {
   if (isDev) return path.resolve(__dirname, '..')
-  return path.join(process.resourcesPath, 'app')
+  return path.join(process.resourcesPath, 'python')
 }
 
 function resolveServerPy() {
   if (isDev) return path.join(path.resolve(__dirname, '..'), 'electron', 'server.py')
-  // In packaged mode, server.py could be in several locations:
-  // 1. resources/server.py (extraResources flat copy)
-  // 2. resources/electron/server.py (extraResources with directory structure)
-  // 3. resources/app/electron/server.py (inside app directory, no-asar mode)
   const candidates = [
+    path.join(process.resourcesPath, 'python', 'server.py'),
     path.join(process.resourcesPath, 'server.py'),
     path.join(process.resourcesPath, 'electron', 'server.py'),
     path.join(__dirname, 'server.py'),
@@ -194,10 +195,11 @@ function startPythonServer(port, pythonExe, serverPy, cwd) {
       log(`CWD does not exist: ${cwd}, falling back to __dirname/..`)
       cwd = path.resolve(__dirname, '..')
     }
-    log(`Starting Python: ${pythonExe} ${serverPy} --port ${port}`)
+    const cmd = `"${pythonExe}" "${serverPy}" --port ${port}`
+    log(`Starting Python: ${cmd}`)
     log(`CWD: ${cwd}`)
 
-    pythonProcess = spawn(pythonExe, [serverPy, '--port', String(port)], {
+    pythonProcess = spawn(cmd, [], {
       cwd,
       env,
       shell: true,

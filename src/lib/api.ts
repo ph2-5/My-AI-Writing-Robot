@@ -91,11 +91,12 @@ export class ApiClient {
         }
 
         const json = await response.json()
+        const { success: jsonSuccess, error: jsonError, ...rest } = json
         return {
-          success: json.success !== undefined ? json.success : true,
-          error: json.error,
+          success: jsonSuccess !== undefined ? jsonSuccess : true,
+          error: jsonError,
           httpStatus: response.status,
-          data: json.data,
+          data: Object.keys(rest).length > 0 ? rest : undefined,
         }
       } catch (err: any) {
         lastError = err
@@ -155,10 +156,11 @@ export class ApiClient {
           mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           attachedImages: imageData,
         })
+        const { success: rSuccess, error: rError, ...rRest } = result
         return {
-          success: result.success,
-          error: result.error,
-          data: result.data,
+          success: rSuccess,
+          error: rError,
+          data: Object.keys(rRest).length > 0 ? rRest : undefined,
         }
       } catch (err: any) {
         return {
@@ -199,10 +201,11 @@ export class ApiClient {
     if (this.isElectron() && (window as any).electronAPI.generate) {
       try {
         const result = await (window as any).electronAPI.generate(params)
+        const { success: gSuccess, error: gError, ...gRest } = result
         return {
-          success: result.success,
-          error: result.error,
-          data: result.data,
+          success: gSuccess,
+          error: gError,
+          data: Object.keys(gRest).length > 0 ? gRest : undefined,
         }
       } catch (err: any) {
         return {
@@ -227,10 +230,11 @@ export class ApiClient {
     if (this.isElectron() && (window as any).electronAPI.demo) {
       try {
         const result = await (window as any).electronAPI.demo()
+        const { success: dSuccess, error: dError, ...dRest } = result
         return {
-          success: result.success,
-          error: result.error,
-          data: result.data,
+          success: dSuccess,
+          error: dError,
+          data: Object.keys(dRest).length > 0 ? dRest : undefined,
         }
       } catch (err: any) {
         return {
@@ -247,13 +251,14 @@ export class ApiClient {
     if (this.isElectron() && (window as any).electronAPI.download) {
       try {
         const result = await (window as any).electronAPI.download(fileId)
+        const { success: dlSuccess, error: dlError, data: dlData, mimeType: dlMime } = result
         return {
-          success: result.success,
-          error: result.error,
+          success: dlSuccess !== false,
+          error: dlError,
           data: {
-            fileData: result.data,
+            fileData: dlData,
             fileName: `output-${fileId}`,
-            mimeType: result.mimeType,
+            mimeType: dlMime || 'application/octet-stream',
           },
         }
       } catch (err: any) {
@@ -283,10 +288,11 @@ export class ApiClient {
     if (this.isElectron() && (window as any).electronAPI.preview) {
       try {
         const result = await (window as any).electronAPI.preview(params)
+        const { success: pSuccess, error: pError, ...pRest } = result
         return {
-          success: result.success,
-          error: result.error,
-          data: result.data,
+          success: pSuccess,
+          error: pError,
+          data: Object.keys(pRest).length > 0 ? pRest : undefined,
         }
       } catch (err: any) {
         return {
@@ -367,7 +373,8 @@ export class ApiClient {
                 if (currentEvent === 'progress' && onProgress) {
                   onProgress(parsed)
                 } else if (currentEvent === 'result') {
-                  finalResult = { success: parsed.success ?? true, error: parsed.error, data: parsed.data }
+                  const { success: pSuccess, error: pError, ...pRest } = parsed
+                  finalResult = { success: pSuccess ?? true, error: pError, data: Object.keys(pRest).length > 0 ? pRest : undefined }
                 }
               } catch {}
             }
@@ -378,7 +385,8 @@ export class ApiClient {
       }
 
       const json = await response.json()
-      return { success: json.success ?? true, error: json.error, httpStatus: response.status, data: json.data }
+      const { success: jSuccess, error: jError, ...jRest } = json
+      return { success: jSuccess ?? true, error: jError, httpStatus: response.status, data: Object.keys(jRest).length > 0 ? jRest : undefined }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return { success: false, error: '请求超时' }

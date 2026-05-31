@@ -5,32 +5,39 @@ directories:
 files:
   - dist/**/*
   - electron/**/*
-  - main.py
-  - config.py
-  - requirements.txt
-  - analyzers/**/*
-  - effects/**/*
-  - fonts/**/*
-  - layout/**/*
-  - output/**/*
-  - parsers/**/*
   - package.json
+  - "!dist/win-unpacked"
+  - "!dist/*.exe"
+  - "!dist/*.blockmap"
+  - "!dist/latest.yml"
+  - "!dist/builder-debug.yml"
 extraResources:
-  - from: ./
-    to: .
-    filter:
-      - main.py
-      - config.py
-      - logging_utils.py
-      - requirements.txt
-      - analyzers/**
-      - effects/**
-      - fonts/**
-      - layout/**
-      - output/**
-      - parsers/**
-      - symbols/**
-      - scripts/**
+  - from: main.py
+    to: python/main.py
+  - from: config.py
+    to: python/config.py
+  - from: logging_utils.py
+    to: python/logging_utils.py
+  - from: requirements.txt
+    to: python/requirements.txt
+  - from: analyzers
+    to: python/analyzers
+  - from: effects
+    to: python/effects
+  - from: fonts
+    to: python/fonts
+  - from: layout
+    to: python/layout
+  - from: output
+    to: python/output
+  - from: parsers
+    to: python/parsers
+  - from: symbols
+    to: python/symbols
+  - from: scripts
+    to: python/scripts
+  - from: electron/server.py
+    to: python/server.py
 win:
   target:
     - target: nsis

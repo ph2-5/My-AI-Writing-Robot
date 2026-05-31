@@ -26,7 +26,7 @@ class AppConfig:
     HAND_DRAWN_AMPLITUDE: float = 0.4
     HAND_DRAWN_FREQUENCY: float = 0.1
     HAND_DRAWN_CORNER_EXAGGERATION: float = 1.5
-    LLM_BASE_URL: str = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
+    LLM_BASE_URL: str = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
     LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "")
     LLM_MODEL: str = os.environ.get("LLM_MODEL", "deepseek-coder")
 

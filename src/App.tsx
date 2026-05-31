@@ -751,7 +751,7 @@ function ConfigPanel() {
               type="text"
               value={config.llmBaseUrl}
               onChange={(e) => config.setLlmBaseUrl(e.target.value)}
-              placeholder="https://api.deepseek.com/v1"
+              placeholder="https://api.deepseek.com"
               className="w-full rounded bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none"
             />
           </div>

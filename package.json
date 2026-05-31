@@ -50,10 +50,5 @@
     "vite": "^6.3.5",
     "vite-tsconfig-paths": "^5.1.4",
     "wait-on": "^9.0.10"
-  },
-  "build": {
-    "appId": "com.aiwritingrobot.app",
-    "productName": "AI写字机器人",
-    "extends": null
   }
 }

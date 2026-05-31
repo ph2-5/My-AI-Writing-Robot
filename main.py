@@ -147,18 +147,27 @@ def run_generate(docx_path: str, output_format: str = 'kuixiang', seed: int = No
         analysis = result['analysis']
         layout_plan = analysis.get('layout_plan', {})
 
-        if layout_plan and layout_plan.get('sections'):
-            precision = PrecisionLayout(app_config=config)
-            commands = precision.calculate(layout_plan)
+        if not layout_plan or not layout_plan.get('sections'):
+            question = result['question']
+            answer = analysis.get('answer_content', '')
+            layout_plan = {
+                'sections': [
+                    {'type': 'text', 'content': f"{question.number}. {question.text}", 'style': {'font_size': 'title'}, 'relative_position': {'placement': 'flow'}},
+                    {'type': 'text', 'content': answer, 'style': {'font_size': 'body'}, 'relative_position': {'placement': 'flow'}},
+                ]
+            }
+            log(f"  第 {question.number} 题 LLM未返回layout_plan，自动生成文本排版")
 
-            validated = precision.validate(commands)
-            if not validated['valid']:
-                log(f"  发现 {len(validated['issues'])} 个布局问题，自动修正...")
-                commands = precision.adjust(commands, validated['issues'])
+        precision = PrecisionLayout(app_config=config)
+        commands = precision.calculate(layout_plan)
 
-            all_commands.extend(commands)
+        validated = precision.validate(commands)
+        if not validated['valid']:
+            log(f"  发现 {len(validated['issues'])} 个布局问题，自动修正...")
+            commands = precision.adjust(commands, validated['issues'])
+
+        all_commands.extend(commands)
         
-        # 添加图像识别的绘制命令
         drawing_commands = analysis.get('drawing_commands', [])
         if drawing_commands:
             all_commands.extend(drawing_commands)

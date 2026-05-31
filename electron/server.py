@@ -57,11 +57,11 @@ class APIError(Exception):
 
 
 def api_result(success: bool, error: Optional[str] = None, http_status: int = 200, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    result = {'success': success, 'httpStatus': http_status}
+    result = {'success': success}
     if error is not None:
         result['error'] = error
     if data is not None:
-        result['data'] = data
+        result.update(data)
     return result
 
 
@@ -582,16 +582,16 @@ def _handle_llm_call(handler):
         result = call_llm(api_config, messages, stream=stream, response_format=response_format)
 
         if not result['success']:
-            handler._send_json(result, result['httpStatus'])
+            handler._send_json(result, 400)
             return
 
-        if stream and 'data' in result and 'stream' in result['data']:
+        if stream and 'stream' in result:
             handler.send_response(200)
             handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
             handler.send_header('Cache-Control', 'no-cache')
             handler.send_header('Access-Control-Allow-Origin', '*')
             handler.end_headers()
-            stream_resp = result['data']['stream']
+            stream_resp = result['stream']
             for chunk in stream_resp:
                 if chunk.choices and chunk.choices[0].delta.content:
                     payload = f"data: {json.dumps({'content': chunk.choices[0].delta.content}, ensure_ascii=False)}\n\n"
@@ -599,7 +599,7 @@ def _handle_llm_call(handler):
             handler.wfile.write(b"data: [DONE]\n\n")
             return
 
-        content = result['data']['content']
+        content = result['content']
         try:
             parsed = json.loads(content)
             handler._send_json(api_success({'content': parsed}))
