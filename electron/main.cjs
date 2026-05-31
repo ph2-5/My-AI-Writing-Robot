@@ -244,6 +244,7 @@ function startPythonServer(port, pythonExe, serverPy, cwd) {
 }
 
 function serverRequest(method, urlPath, options = {}) {
+  const timeout = options.timeout || 30000
   return new Promise((resolve, reject) => {
     const url = new URL(urlPath, `http://127.0.0.1:${serverPort}`)
     const reqOpts = {
@@ -269,6 +270,11 @@ function serverRequest(method, urlPath, options = {}) {
           }
         }
       })
+    })
+
+    req.setTimeout(timeout, () => {
+      req.destroy()
+      reject(new Error(`请求超时 (${Math.round(timeout / 1000)}s)`))
     })
 
     req.on('error', reject)
@@ -456,6 +462,7 @@ ipcMain.handle('generate', async (_e, { fileId, format, seed, config }) => {
   return serverRequest('POST', '/api/homework/generate', {
     headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
     body,
+    timeout: 180000,
   })
 })
 

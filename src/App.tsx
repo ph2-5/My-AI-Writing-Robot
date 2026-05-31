@@ -375,14 +375,22 @@ function GlobalActions() {
   const [isExporting, setIsExporting] = useState(false)
 
   const handleGenerate = async () => {
-    if (!fileId || isGenerating) return
+    if (!fileId || isGenerating || isPreviewing) return
     const config = useConfigStore.getState().getConfig()
-    await useGenerateStore.getState().startGenerate({
-      fileId,
-      format: (config.outputFormat as string) || 'kuixiang',
-      seed: (config.seed as number | null) ?? null,
-      config,
-    })
+    if (!config.llmApiKey) {
+      useGenerateStore.getState().clearError()
+      useGenerateStore.setState({ error: '请先在左侧「配置」面板中填写 LLM API Key，才能使用 AI 分析功能' })
+      return
+    }
+    try {
+      await useGenerateStore.getState().startPreview({ fileId, config })
+      await useGenerateStore.getState().startGenerate({
+        fileId,
+        format: (config.outputFormat as string) || 'kuixiang',
+        seed: (config.seed as number | null) ?? null,
+        config,
+      })
+    } catch {}
   }
 
   const handleExport = async () => {
@@ -833,6 +841,11 @@ function PreviewPanel() {
   const handlePreview = async () => {
     if (!fileId || isPreviewing) return
     const config = useConfigStore.getState().getConfig()
+    if (!config.llmApiKey) {
+      useGenerateStore.getState().clearError()
+      useGenerateStore.setState({ error: '请先在左侧「配置」面板中填写 LLM API Key，才能使用 AI 分析功能' })
+      return
+    }
     await useGenerateStore.getState().startPreview({
       fileId,
       config,
@@ -1016,7 +1029,7 @@ function CanvasArea() {
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef({ x: 0, y: 0, px: 0, py: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-  const { svgContent, previewSvg, isGenerating, isPreviewing, isAgentWorking, agentProgress } = useGenerateStore()
+  const { svgContent, previewSvg, isGenerating, isPreviewing, isAgentWorking, agentProgress, error } = useGenerateStore()
 
   const displaySvg = svgContent || previewSvg
   const isWorking = isGenerating || isPreviewing || isAgentWorking
@@ -1136,6 +1149,19 @@ function CanvasArea() {
                 transition: isPanning ? 'none' : 'transform 0.15s ease-out',
               }}
             />
+          ) : error ? (
+            <div className="text-center space-y-3">
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20 mx-auto">
+                <AlertCircle className="h-10 w-10 text-red-400" />
+              </div>
+              <p className="text-sm text-red-400 max-w-md">{error}</p>
+              <button
+                onClick={() => useGenerateStore.getState().clearError()}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
           ) : (
             <div className="text-center space-y-3">
               <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 mx-auto">
